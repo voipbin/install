@@ -23,7 +23,8 @@ def generate_all_secrets() -> dict[str, str]:
 
 def write_secrets_yaml(secrets_dict: dict[str, str], path: Path) -> None:
     """Write plaintext secrets to a YAML file (temporary — encrypt immediately)."""
-    with open(path, "w") as f:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
         yaml.safe_dump(secrets_dict, f, default_flow_style=False)
 
 
@@ -33,7 +34,7 @@ def encrypt_with_sops(plaintext_path: Path, kms_key_id: str) -> bool:
     Returns True on success.
     """
     result = run_cmd(
-        f"sops --encrypt --in-place --gcp-kms {kms_key_id} {plaintext_path}",
+        ["sops", "--encrypt", "--in-place", "--gcp-kms", kms_key_id, str(plaintext_path)],
         timeout=60,
     )
     return result.returncode == 0
@@ -41,7 +42,7 @@ def encrypt_with_sops(plaintext_path: Path, kms_key_id: str) -> bool:
 
 def decrypt_with_sops(encrypted_path: Path) -> Optional[dict[str, Any]]:
     """Decrypt a SOPS-encrypted YAML file. Returns parsed dict or None."""
-    result = run_cmd(f"sops --decrypt {encrypted_path}", timeout=60)
+    result = run_cmd(["sops", "--decrypt", str(encrypted_path)], timeout=60)
     if result.returncode != 0:
         return None
     return yaml.safe_load(result.stdout)

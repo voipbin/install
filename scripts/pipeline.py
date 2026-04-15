@@ -16,7 +16,7 @@ from scripts.display import (
     print_success,
     print_warning,
 )
-from scripts.k8s import k8s_apply, k8s_delete
+from scripts.k8s import k8s_apply, k8s_delete, k8s_dry_run
 from scripts.terraform import (
     terraform_apply,
     terraform_destroy,
@@ -76,9 +76,8 @@ def _run_terraform_init(
     dry_run: bool,
     auto_approve: bool,
 ) -> bool:
-    if dry_run:
-        print_step("[dim]Dry run: would run terraform init[/dim]")
-        return True
+    # terraform init is safe to run even in dry-run — it only configures
+    # the backend and downloads providers; no infrastructure is created.
     return terraform_init(config)
 
 
@@ -100,6 +99,12 @@ def _run_ansible(
     auto_approve: bool,
 ) -> bool:
     if dry_run:
+        # ansible --check requires SSH to existing VMs; skip gracefully
+        # when no Terraform outputs are available (infrastructure not yet created)
+        if not outputs.get("kamailio_internal_ips"):
+            print_step("[dim]Dry run: skipping Ansible (no infrastructure deployed yet)[/dim]")
+            print_step("[dim]  ansible-playbook --check requires VMs to be reachable via IAP[/dim]")
+            return True
         return ansible_check(config, outputs)
     return ansible_run(config, outputs)
 
@@ -111,8 +116,7 @@ def _run_k8s_apply(
     auto_approve: bool,
 ) -> bool:
     if dry_run:
-        print_step("[dim]Dry run: would run kubectl apply -k k8s/[/dim]")
-        return True
+        return k8s_dry_run(config, outputs)
     return k8s_apply(config, outputs)
 
 

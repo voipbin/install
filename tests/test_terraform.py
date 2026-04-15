@@ -104,8 +104,8 @@ class TestWriteTfvars:
         with open(tfvars_path) as f:
             data = json.load(f)
         assert data["vm_machine_type"] == "f1-micro"
-        assert data["kamailio_count"] == 2
-        assert data["rtpengine_count"] == 2
+        assert data["kamailio_count"] == 1
+        assert data["rtpengine_count"] == 1
 
     def test_overwrites_existing(self, tmp_path, monkeypatch):
         tfvars_path = tmp_path / "terraform.tfvars.json"
@@ -139,3 +139,13 @@ class TestWriteTfvars:
             "rtpengine_count", "domain", "dns_mode", "tls_strategy",
         }
         assert set(data.keys()) == expected_keys
+
+    def test_restricts_file_permissions(self, tmp_path, monkeypatch):
+        tfvars_path = tmp_path / "terraform.tfvars.json"
+        monkeypatch.setattr("scripts.terraform.TFVARS_FILE", tfvars_path)
+
+        cfg = _make_config(tmp_path)
+        write_tfvars(cfg)
+
+        mode = tfvars_path.stat().st_mode & 0o777
+        assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"

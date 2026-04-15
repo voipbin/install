@@ -118,16 +118,16 @@ def print_cost_table(gke_type: str) -> None:
 
     is_regional = gke_type == "regional"
     gke_ctrl = "~$73" if is_regional else "$0 (free)"
-    total = "~$255" if is_regional else "~$182"
+    total = "~$243" if is_regional else "~$170"
 
     rows = [
         ("GKE Control Plane", "1 cluster", gke_ctrl),
         ("GKE Nodes", "2x n1-standard-2", "~$97"),
-        ("Kamailio VMs", "2x f1-micro", "~$12"),
-        ("RTPEngine VMs", "2x f1-micro", "~$12"),
+        ("Kamailio VM", "1x f1-micro", "~$6"),
+        ("RTPEngine VM", "1x f1-micro", "~$6"),
         ("Cloud SQL", "db-f1-micro MySQL", "~$13"),
         ("Cloud NAT", "Gateway", "~$10"),
-        ("External IPs", "3-4 static", "~$12"),
+        ("External IPs", "2-3 static", "~$8"),
         ("Load Balancers", "Network LB", "~$20"),
         ("Other", "DNS, GCS, KMS, disks", "~$6"),
     ]

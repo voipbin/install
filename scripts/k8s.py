@@ -66,13 +66,13 @@ def _build_substitution_map(
 def _render_manifests(
     config: InstallerConfig,
     terraform_outputs: dict[str, Any],
-) -> tuple[bool, str]:
+) -> tuple[bool, str, int]:
     """Render kustomize manifests with all placeholders substituted.
 
     Decrypts secrets.yaml, builds the substitution map, renders via
     ``kubectl kustomize``, and replaces every PLACEHOLDER_* token.
 
-    Returns (success, rendered_yaml).
+    Returns (success, rendered_yaml, unresolved_placeholder_count).
     """
     # 1. Decrypt secrets
     secrets_path = config.secrets_path
@@ -81,7 +81,7 @@ def _render_manifests(
         decrypted = decrypt_with_sops(secrets_path)
         if decrypted is None:
             print_error("Failed to decrypt secrets.yaml — cannot substitute K8s placeholders")
-            return False, ""
+            return False, "", 0
         secrets = {k: str(v) for k, v in decrypted.items()}
     else:
         print_warning("secrets.yaml not found — K8s manifests will have empty secret values")
@@ -90,10 +90,10 @@ def _render_manifests(
     subs = _build_substitution_map(config, terraform_outputs, secrets)
 
     # 3. Render via kustomize
-    result = run_cmd(f"kubectl kustomize {K8S_DIR}", capture=True, timeout=120)
+    result = run_cmd(["kubectl", "kustomize", str(K8S_DIR)], capture=True, timeout=120)
     if result.returncode != 0:
         print_error(f"kubectl kustomize failed:\n{result.stderr}")
-        return False, ""
+        return False, "", 0
     rendered = result.stdout
 
     # 4. Substitute — process longest tokens first to avoid partial matches
@@ -111,7 +111,7 @@ def _render_manifests(
         for line in remaining[:5]:
             print_step(f"  [dim]{line}[/dim]")
 
-    return True, rendered
+    return True, rendered, len(remaining)
 
 
 def k8s_get_credentials(
@@ -125,11 +125,10 @@ def k8s_get_credentials(
     if not cluster_name:
         print_error("GKE cluster name not found in Terraform outputs")
         return False
-    cmd = (
-        f"gcloud container clusters get-credentials {cluster_name}"
-        f" --zone {zone}"
-        f" --project {project_id}"
-    )
+    cmd = [
+        "gcloud", "container", "clusters", "get-credentials", cluster_name,
+        "--zone", zone, "--project", project_id,
+    ]
     print_step(f"Fetching credentials for cluster: {cluster_name}")
     result = run_cmd(cmd, capture=True, timeout=120)
     if result.returncode != 0:
@@ -154,7 +153,7 @@ def k8s_apply(
         return False
 
     print_step("Rendering manifests with secrets and config values...")
-    ok, rendered = _render_manifests(config, terraform_outputs)
+    ok, rendered, _unresolved = _render_manifests(config, terraform_outputs)
     if not ok:
         return False
 
@@ -175,6 +174,47 @@ def k8s_apply(
     return True
 
 
+def k8s_dry_run(
+    config: InstallerConfig,
+    terraform_outputs: dict[str, Any],
+) -> bool:
+    """Validate K8s manifests without applying.
+
+    Renders manifests with placeholder substitution and runs
+    ``kubectl apply --dry-run=client`` to validate them.
+    Does not require a live cluster connection.
+    """
+    print_step("Rendering manifests with secrets and config values...")
+    ok, rendered, unresolved = _render_manifests(config, terraform_outputs)
+    if not ok:
+        return False
+
+    resource_count = sum(
+        1 for line in rendered.splitlines() if line.startswith("kind:")
+    )
+    if unresolved:
+        print_warning(f"Manifests rendered: {resource_count} resources, {unresolved} unresolved placeholders")
+    else:
+        print_success(f"Manifests rendered: {resource_count} resources, all placeholders resolved")
+
+    # Validate with client-side dry-run (no cluster needed)
+    print_step("Running: kubectl apply --dry-run=client -f - (validation only)")
+    result = subprocess.run(
+        ["kubectl", "apply", "--dry-run=client", "-f", "-"],
+        input=rendered,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if result.returncode != 0:
+        print_error(f"Manifest validation failed:\n{result.stderr}")
+        return False
+    if result.stdout:
+        _print_apply_summary(result.stdout)
+    print_success("Manifests validated (dry-run=client)")
+    return True
+
+
 def _print_apply_summary(stdout: str) -> None:
     """Summarize kubectl apply output counts."""
     counts: dict[str, int] = {}
@@ -189,10 +229,7 @@ def _print_apply_summary(stdout: str) -> None:
 
 def k8s_status(config: InstallerConfig) -> dict[str, Any]:
     """Check pod statuses. Returns a summary dict."""
-    cmd = (
-        "kubectl get pods --all-namespaces"
-        " -o json"
-    )
+    cmd = ["kubectl", "get", "pods", "--all-namespaces", "-o", "json"]
     result = run_cmd(cmd, capture=True, timeout=60)
     if result.returncode != 0:
         return {"error": result.stderr.strip(), "pods": []}
@@ -225,7 +262,7 @@ def _compute_pod_summary(pods: list[dict[str, str]]) -> dict[str, int]:
 
 def k8s_delete(config: InstallerConfig) -> bool:
     """Delete Kubernetes resources via kustomize. Returns True on success."""
-    cmd = f"kubectl delete -k {K8S_DIR} --ignore-not-found"
+    cmd = ["kubectl", "delete", "-k", str(K8S_DIR), "--ignore-not-found"]
     print_step("Running: kubectl delete -k k8s/")
     result = run_cmd(cmd, capture=True, timeout=600)
     if result.returncode != 0:
@@ -244,12 +281,10 @@ def k8s_cluster_status(config: InstallerConfig) -> dict[str, str]:
     """Return basic GKE cluster info or error."""
     project_id = config.get("gcp_project_id", "")
     zone = config.get("zone", "")
-    cmd = (
-        f"gcloud container clusters list"
-        f" --project {project_id}"
-        f" --zone {zone}"
-        f" --format=json"
-    )
+    cmd = [
+        "gcloud", "container", "clusters", "list",
+        "--project", project_id, "--zone", zone, "--format=json",
+    ]
     result = run_cmd(cmd, capture=True, timeout=60)
     if result.returncode != 0:
         return {"status": "error", "message": result.stderr.strip()}

@@ -241,8 +241,8 @@ Detailed architecture documentation for the VoIPBin GCP deployment.
     |    - Cloud NAT + router                 |
     |    - Firewall rules (8)                 |
     |    - GKE cluster + node pool            |
-    |    - Kamailio VMs (2)                   |
-    |    - RTPEngine VMs (2) + static IPs     |
+    |    - Kamailio VM (1)                    |
+    |    - RTPEngine VM (1) + static IP       |
     |    - Cloud SQL MySQL                    |
     |    - Cloud DNS zone + records           |
     |    - Load balancers (ext + int)         |

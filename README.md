@@ -168,7 +168,7 @@ The `init` command automatically enables these 16 APIs on your project:
 
 ```bash
 # Clone the repository
-git clone <repo-url>
+git clone git@github.com:voipbin/install.git
 cd install
 
 # Install Python dependencies
@@ -253,8 +253,8 @@ dns_mode: auto
 gke_machine_type: n1-standard-2
 gke_node_count: 2
 vm_machine_type: f1-micro
-kamailio_count: 2
-rtpengine_count: 2
+kamailio_count: 1
+rtpengine_count: 1
 ```
 
 ### secrets.yaml (SOPS-encrypted)
@@ -300,13 +300,13 @@ Decrypt manually with: `sops --decrypt secrets.yaml`
 - Private nodes, shielded instances, COS_CONTAINERD image
 - REGULAR release channel
 
-**Kamailio VMs** (2x `f1-micro`)
+**Kamailio VM** (1x `f1-micro`)
 - SIP proxy handling inbound/outbound SIP, TLS, and WebSocket Secure traffic
 - No public IP -- external traffic arrives via network load balancer
 - Configured via Ansible with Docker Compose
 
-**RTPEngine VMs** (2x `f1-micro`)
-- RTP media relay with static external IPs for direct media paths
+**RTPEngine VM** (1x `f1-micro`)
+- RTP media relay with static external IP for direct media paths
 - Configured via Ansible with Docker Compose
 
 ### Load Balancers
@@ -426,14 +426,14 @@ Estimated monthly costs for a minimal deployment:
 |----------|------|--------:|
 | GKE Control Plane | 1 cluster | $0 (zonal) / ~$73 (regional) |
 | GKE Nodes | 2x n1-standard-2 | ~$97 |
-| Kamailio VMs | 2x f1-micro | ~$12 |
-| RTPEngine VMs | 2x f1-micro | ~$12 |
+| Kamailio VM | 1x f1-micro | ~$6 |
+| RTPEngine VM | 1x f1-micro | ~$6 |
 | Cloud SQL | db-f1-micro MySQL | ~$13 |
 | Cloud NAT | Gateway | ~$10 |
-| External IPs | 3-4 static | ~$12 |
+| External IPs | 2-3 static | ~$8 |
 | Load Balancers | Network LB | ~$20 |
 | Other | DNS, GCS, KMS, disks | ~$6 |
-| **Total** | | **~$182 (zonal) / ~$255 (regional)** |
+| **Total** | | **~$170 (zonal) / ~$243 (regional)** |
 
 These estimates assume `us-central1`. Costs vary by region.
 
@@ -464,15 +464,21 @@ install/
 |   |-- config.py                # InstallerConfig class (load/save/validate/export)
 |   |-- display.py               # Rich TUI helpers (banner, tables, prompts, progress)
 |   |-- gcp.py                   # GCP operations (quotas, APIs, service accounts, KMS)
+|   |-- k8s.py                   # K8s operations (kustomize render, placeholder substitution, apply)
+|   |-- pipeline.py              # Deployment pipeline orchestrator with checkpoint/resume
 |   |-- preflight.py             # Tool version checks and GCP auth validation
 |   |-- secretmgr.py             # Secret generation and SOPS encryption
+|   |-- terraform.py             # Terraform init/plan/apply/destroy/output + tfvars
+|   |-- ansible_runner.py        # Ansible playbook execution via IAP tunnel
 |   |-- utils.py                 # Shell commands, semver parsing, crypto helpers
+|   |-- verify.py                # 10 health checks (GKE, pods, DNS, HTTP, SIP, etc.)
 |   |-- wizard.py                # 7-question interactive setup wizard
 |   |-- commands/
 |       |-- init.py              # init command: wizard + preflight + GCP setup
 |       |-- apply.py             # apply command: Terraform + Ansible + K8s deploy
 |       |-- destroy.py           # destroy command: tear down all resources
 |       |-- status.py            # status command: show deployment state
+|       |-- verify.py            # verify command: run health checks with Rich output
 |-- terraform/                   # 18 Terraform files
 |   |-- apis.tf                  # GCP API enablement with propagation delay
 |   |-- backend.tf               # GCS remote state backend
@@ -510,10 +516,14 @@ install/
 |   |-- frontend/                # 3 frontend app deployments
 |   |-- ingress/                 # Ingress + cert-manager cluster issuer
 |   |-- database/                # Database migration job
-|-- tests/
+|-- tests/                       # 103 unit tests
     |-- test_utils.py            # parse_semver, version_gte, generate_*
     |-- test_config.py           # InstallerConfig roundtrip, validation, export
     |-- test_wizard.py           # Domain/project validation, zone derivation
+    |-- test_k8s.py              # K8s placeholder substitution map
+    |-- test_pipeline.py         # Checkpoint save/load, stage ordering
+    |-- test_terraform.py        # tfvars generation and content
+    |-- test_verify.py           # Health check logic (GKE, pods, DNS, HTTP, SIP)
 ```
 
 

@@ -1,0 +1,119 @@
+"""Tests for scripts/preflight.py — version parsers and preflight result logic."""
+
+import json
+
+from scripts.preflight import (
+    PreflightResult,
+    _parse_ansible,
+    _parse_gcloud,
+    _parse_generic,
+    _parse_kubectl,
+    _parse_terraform,
+    run_preflight_display,
+)
+
+
+class TestParseGcloud:
+    def test_simple_version(self):
+        assert _parse_gcloud("Google Cloud SDK 456.0.0") == "456.0.0"
+
+    def test_multiline(self):
+        output = "Google Cloud SDK 456.0.0\nbq 2.0.94\ncore 2023.08.22\ngsutil 5.25"
+        assert _parse_gcloud(output) == "456.0.0"
+
+    def test_no_version(self):
+        assert _parse_gcloud("not a valid output") == ""
+
+    def test_empty(self):
+        assert _parse_gcloud("") == ""
+
+
+class TestParseTerraform:
+    def test_with_v_prefix(self):
+        assert _parse_terraform("Terraform v1.7.3") == "1.7.3"
+
+    def test_without_prefix(self):
+        assert _parse_terraform("1.5.0") == "1.5.0"
+
+    def test_multiline(self):
+        output = "Terraform v1.7.3\non linux_amd64\n"
+        assert _parse_terraform(output) == "1.7.3"
+
+    def test_no_version(self):
+        assert _parse_terraform("unknown") == ""
+
+
+class TestParseAnsible:
+    def test_core_format(self):
+        output = "ansible [core 2.16.3]\n  config file = /etc/ansible/ansible.cfg"
+        assert _parse_ansible(output) == "2.16.3"
+
+    def test_fallback_format(self):
+        assert _parse_ansible("ansible 2.15.0") == "2.15.0"
+
+    def test_no_version(self):
+        assert _parse_ansible("something else") == ""
+
+
+class TestParseKubectl:
+    def test_json_format(self):
+        data = {
+            "clientVersion": {
+                "major": "1",
+                "minor": "30",
+                "gitVersion": "v1.30.1",
+            }
+        }
+        assert _parse_kubectl(json.dumps(data)) == "1.30.1"
+
+    def test_fallback_regex(self):
+        assert _parse_kubectl("Client Version: v1.28.5") == "1.28.5"
+
+    def test_invalid_json(self):
+        assert _parse_kubectl("{bad json") == ""
+
+    def test_json_missing_key(self):
+        assert _parse_kubectl('{"other": "data"}') == ""
+
+
+class TestParseGeneric:
+    def test_extracts_semver(self):
+        assert _parse_generic("Python 3.12.3") == "3.12.3"
+
+    def test_sops_version(self):
+        assert _parse_generic("sops 3.8.1 (latest)") == "3.8.1"
+
+    def test_no_version(self):
+        assert _parse_generic("no version here") == ""
+
+
+class TestPreflightResult:
+    def test_dataclass_fields(self):
+        r = PreflightResult(
+            tool="gcloud", version="456.0.0", ok=True,
+            required="400.0.0", hint="install link"
+        )
+        assert r.tool == "gcloud"
+        assert r.version == "456.0.0"
+        assert r.ok is True
+        assert r.required == "400.0.0"
+        assert r.hint == "install link"
+
+
+class TestRunPreflightDisplay:
+    def test_all_ok_returns_true(self):
+        results = [
+            PreflightResult("gcloud", "456.0.0", True, "400.0.0", ""),
+            PreflightResult("terraform", "1.7.3", True, "1.5.0", ""),
+        ]
+        assert run_preflight_display(results) is True
+
+    def test_one_failed_returns_false(self):
+        results = [
+            PreflightResult("gcloud", "456.0.0", True, "400.0.0", ""),
+            PreflightResult("terraform", "", False, "1.5.0", "install terraform"),
+        ]
+        assert run_preflight_display(results) is False
+
+    def test_empty_results_returns_true(self):
+        assert run_preflight_display([]) is True

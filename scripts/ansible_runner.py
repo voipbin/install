@@ -1,6 +1,7 @@
 """Ansible operations for VoIPBin installer."""
 
 import json
+import os
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -19,7 +20,11 @@ def _write_extra_vars(
     config: InstallerConfig,
     terraform_outputs: dict[str, Any],
 ) -> Path:
-    """Write a temporary extra-vars JSON file combining config + Terraform outputs."""
+    """Write a temporary extra-vars JSON file combining config + Terraform outputs.
+
+    The file is created with restricted permissions (0o600) since it may
+    contain sensitive data like database passwords and API keys.
+    """
     ansible_vars = config.to_ansible_vars()
     ansible_vars["terraform_outputs"] = terraform_outputs
     # Flatten common Terraform outputs into top-level vars for Ansible roles
@@ -36,12 +41,12 @@ def _write_extra_vars(
     ansible_vars["kamailio_external_lb_ip"] = terraform_outputs.get(
         "kamailio_external_lb_ip", ""
     )
-    tmp = tempfile.NamedTemporaryFile(
-        mode="w", suffix=".json", prefix="voipbin_extra_vars_", delete=False
-    )
-    json.dump(ansible_vars, tmp, indent=2)
-    tmp.close()
-    return Path(tmp.name)
+    # Create temp file with restricted permissions (owner-only read/write)
+    fd = tempfile.mkstemp(suffix=".json", prefix="voipbin_extra_vars_")
+    os.fchmod(fd[0], 0o600)
+    with os.fdopen(fd[0], "w") as f:
+        json.dump(ansible_vars, f, indent=2)
+    return Path(fd[1])
 
 
 def ansible_run(
@@ -50,24 +55,25 @@ def ansible_run(
 ) -> bool:
     """Run site.yml with inventory and extra vars. Returns True on success."""
     extra_vars_path = _write_extra_vars(config, terraform_outputs)
-    project_id = config.get("gcp_project_id", "")
-    zone = config.get("zone", "")
-    cmd = (
-        f"ansible-playbook {PLAYBOOK_SITE}"
-        f" --inventory {INVENTORY_SCRIPT}"
-        f" --extra-vars @{extra_vars_path}"
-        f" -e gcp_project={project_id}"
-        f" -e gcp_zone={zone}"
-    )
-    print_step("Running: ansible-playbook site.yml")
-    result = run_cmd(cmd, capture=False, timeout=1800)
-    # Clean up temp file
-    extra_vars_path.unlink(missing_ok=True)
-    if result.returncode != 0:
-        print_error("Ansible playbook failed")
-        return False
-    print_success("Ansible playbook complete")
-    return True
+    try:
+        project_id = config.get("gcp_project_id", "")
+        zone = config.get("zone", "")
+        cmd = [
+            "ansible-playbook", str(PLAYBOOK_SITE),
+            "--inventory", str(INVENTORY_SCRIPT),
+            "--extra-vars", f"@{extra_vars_path}",
+            "-e", f"gcp_project={project_id}",
+            "-e", f"gcp_zone={zone}",
+        ]
+        print_step("Running: ansible-playbook site.yml")
+        result = run_cmd(cmd, capture=False, timeout=1800)
+        if result.returncode != 0:
+            print_error("Ansible playbook failed")
+            return False
+        print_success("Ansible playbook complete")
+        return True
+    finally:
+        extra_vars_path.unlink(missing_ok=True)
 
 
 def ansible_check(
@@ -76,21 +82,23 @@ def ansible_check(
 ) -> bool:
     """Dry-run Ansible with --check. Returns True on success."""
     extra_vars_path = _write_extra_vars(config, terraform_outputs)
-    project_id = config.get("gcp_project_id", "")
-    zone = config.get("zone", "")
-    cmd = (
-        f"ansible-playbook {PLAYBOOK_SITE}"
-        f" --inventory {INVENTORY_SCRIPT}"
-        f" --extra-vars @{extra_vars_path}"
-        f" -e gcp_project={project_id}"
-        f" -e gcp_zone={zone}"
-        f" --check --diff"
-    )
-    print_step("Running: ansible-playbook --check (dry run)")
-    result = run_cmd(cmd, capture=False, timeout=600)
-    extra_vars_path.unlink(missing_ok=True)
-    if result.returncode != 0:
-        print_error("Ansible check failed")
-        return False
-    print_success("Ansible check passed")
-    return True
+    try:
+        project_id = config.get("gcp_project_id", "")
+        zone = config.get("zone", "")
+        cmd = [
+            "ansible-playbook", str(PLAYBOOK_SITE),
+            "--inventory", str(INVENTORY_SCRIPT),
+            "--extra-vars", f"@{extra_vars_path}",
+            "-e", f"gcp_project={project_id}",
+            "-e", f"gcp_zone={zone}",
+            "--check", "--diff",
+        ]
+        print_step("Running: ansible-playbook --check (dry run)")
+        result = run_cmd(cmd, capture=False, timeout=600)
+        if result.returncode != 0:
+            print_error("Ansible check failed")
+            return False
+        print_success("Ansible check passed")
+        return True
+    finally:
+        extra_vars_path.unlink(missing_ok=True)
