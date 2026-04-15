@@ -1,0 +1,17 @@
+---
+# Kamailio-only playbook.
+#
+# Usage:
+#   ansible-playbook playbooks/kamailio.yml
+#   ansible-playbook playbooks/kamailio.yml --tags config
+#   ansible-playbook playbooks/kamailio.yml --tags deploy
+
+- name: Deploy Kamailio SIP Proxy
+  hosts: kamailio
+  gather_facts: yes
+  roles:
+    - role: common
+      tags: ['common', 'docker']
+
+    - role: kamailio
+      tags: ['kamailio', 'deploy']

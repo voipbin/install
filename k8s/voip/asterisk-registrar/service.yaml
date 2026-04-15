@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: asterisk-registrar-tcp
+  namespace: voip
+  labels:
+    app: asterisk-registrar
+  annotations:
+    cloud.google.com/load-balancer-type: "Internal"
+spec:
+  type: LoadBalancer
+  selector:
+    app: asterisk-registrar
+  ports:
+    - port: 5060
+      targetPort: 5060
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: asterisk-registrar-udp
+  namespace: voip
+  labels:
+    app: asterisk-registrar
+  annotations:
+    cloud.google.com/load-balancer-type: "Internal"
+spec:
+  type: LoadBalancer
+  selector:
+    app: asterisk-registrar
+  ports:
+    - port: 5060
+      targetPort: 5060
+      protocol: UDP

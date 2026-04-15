@@ -1,0 +1,35 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - api-manager.yaml
+  - agent-manager.yaml
+  - ai-manager.yaml
+  - billing-manager.yaml
+  - call-manager.yaml
+  - campaign-manager.yaml
+  - conference-manager.yaml
+  - contact-manager.yaml
+  - conversation-manager.yaml
+  - customer-manager.yaml
+  - direct-manager.yaml
+  - email-manager.yaml
+  - flow-manager.yaml
+  - hook-manager.yaml
+  - message-manager.yaml
+  - number-manager.yaml
+  - outdial-manager.yaml
+  - pipecat-manager.yaml
+  - queue-manager.yaml
+  - rag-manager.yaml
+  - registrar-manager.yaml
+  - route-manager.yaml
+  - sentinel-manager.yaml
+  - storage-manager.yaml
+  - tag-manager.yaml
+  - talk-manager.yaml
+  - timeline-manager.yaml
+  - transcribe-manager.yaml
+  - transfer-manager.yaml
+  - tts-manager.yaml
+  - webhook-manager.yaml

@@ -1,0 +1,19 @@
+# GCP APIs required by VoIPBin installer
+# Auto-enabled during init with retry logic
+apis:
+  - compute.googleapis.com
+  - container.googleapis.com
+  - sqladmin.googleapis.com
+  - dns.googleapis.com
+  - cloudkms.googleapis.com
+  - secretmanager.googleapis.com
+  - cloudresourcemanager.googleapis.com
+  - iam.googleapis.com
+  - servicenetworking.googleapis.com
+  - storage.googleapis.com
+  - storage-api.googleapis.com
+  - logging.googleapis.com
+  - monitoring.googleapis.com
+  - oslogin.googleapis.com
+  - serviceusage.googleapis.com
+  - iap.googleapis.com

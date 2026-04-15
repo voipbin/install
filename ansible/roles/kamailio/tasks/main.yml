@@ -1,0 +1,92 @@
+---
+# Kamailio Docker deployment tasks.
+
+# --- Stop existing stack before re-deploy ---
+- name: Check if docker-compose.yml exists
+  stat:
+    path: "{{ kamailio_deploy_dir }}/docker-compose.yml"
+  register: compose_file
+
+- name: Stop Kamailio Docker Compose stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ kamailio_deploy_dir }}"
+    state: absent
+  when: compose_file.stat.exists
+  ignore_errors: yes
+  tags: ['deploy']
+
+# --- Create deployment directory ---
+- name: Create kamailio deployment directory
+  file:
+    path: "{{ kamailio_deploy_dir }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+
+- name: Create certificate directories
+  file:
+    path: "{{ certs_deploy_path }}/{{ item }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+  loop:
+    - "sip.{{ domain }}"
+    - "registrar.{{ domain }}"
+
+# --- Deploy configuration files ---
+- name: Template docker-compose.yml
+  template:
+    src: docker-compose.yml.j2
+    dest: "{{ kamailio_deploy_dir }}/docker-compose.yml"
+    mode: '0644'
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+  tags: ['compose', 'config']
+  notify: Recreate kamailio containers
+
+- name: Generate .env file from template
+  template:
+    src: env.j2
+    dest: "{{ kamailio_deploy_dir }}/.env"
+    mode: '0600'
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+  tags: ['config', 'env']
+  notify: Recreate kamailio containers
+
+# --- Docker pull and start ---
+- name: Pull latest Docker images
+  community.docker.docker_compose_v2:
+    project_src: "{{ kamailio_deploy_dir }}"
+    state: present
+    pull: "always"
+  tags: ['deploy']
+
+- name: Start Kamailio Docker Compose stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ kamailio_deploy_dir }}"
+    state: present
+  tags: ['deploy']
+  register: compose_result
+
+# --- Health check ---
+- name: Wait for Kamailio SIP port to be ready
+  wait_for:
+    port: 5060
+    host: "{{ internal_ip | default(ansible_default_ipv4.address) }}"
+    delay: 10
+    timeout: 120
+  tags: ['deploy', 'verify']
+
+- name: Display deployment status
+  debug:
+    msg: "Kamailio Docker deployment completed successfully on {{ inventory_hostname }}"
+  tags: ['deploy']
+
+# --- Cleanup ---
+- name: Prune unused Docker images
+  community.docker.docker_prune:
+    images: true
+  tags: ['deploy', 'cleanup']

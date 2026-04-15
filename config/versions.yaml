@@ -1,0 +1,62 @@
+# VoIPBin Docker Image Versions
+# Used when image_tag_strategy is "pinned"
+# Update by running: ./voipbin-install update-versions
+default_tag: latest
+
+images:
+  # VoIP infrastructure
+  voip-kamailio: latest
+  voip-rtpengine: latest
+  voip-asterisk-call: latest
+  voip-asterisk-conference: latest
+  voip-asterisk-registrar: latest
+  voip-asterisk-proxy: latest
+  voip-kamailio-exporter: latest
+  voip-rtpengine-proxy: latest
+
+  # Backend microservices
+  bin-api-manager: latest
+  bin-agent-manager: latest
+  bin-ai-manager: latest
+  bin-billing-manager: latest
+  bin-call-manager: latest
+  bin-campaign-manager: latest
+  bin-conference-manager: latest
+  bin-contact-manager: latest
+  bin-conversation-manager: latest
+  bin-customer-manager: latest
+  bin-direct-manager: latest
+  bin-email-manager: latest
+  bin-flow-manager: latest
+  bin-hook-manager: latest
+  bin-message-manager: latest
+  bin-number-manager: latest
+  bin-outdial-manager: latest
+  bin-pipecat-manager: latest
+  bin-queue-manager: latest
+  bin-rag-manager: latest
+  bin-registrar-manager: latest
+  bin-route-manager: latest
+  bin-sentinel-manager: latest
+  bin-storage-manager: latest
+  bin-tag-manager: latest
+  bin-talk-manager: latest
+  bin-timeline-manager: latest
+  bin-transcribe-manager: latest
+  bin-transfer-manager: latest
+  bin-tts-manager: latest
+  bin-webhook-manager: latest
+
+  # Database migration
+  bin-database: latest
+
+  # Frontend
+  square-admin: latest
+  square-talk: latest
+  square-meet: latest
+  square-main: latest
+
+  # Third-party infrastructure (pinned)
+  redis: "7-alpine"
+  rabbitmq: "4.0-management-alpine"
+  clickhouse: "24.3-alpine"

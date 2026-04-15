@@ -1,0 +1,14 @@
+# IAM roles for installer service account
+roles:
+  - roles/compute.admin
+  - roles/container.admin
+  - roles/cloudsql.admin
+  - roles/dns.admin
+  - roles/cloudkms.admin
+  - roles/secretmanager.admin
+  - roles/iam.serviceAccountAdmin
+  - roles/iam.serviceAccountUser
+  - roles/resourcemanager.projectIamAdmin
+  - roles/storage.admin
+  - roles/serviceusage.serviceUsageAdmin
+  - roles/iap.tunnelResourceAccessor

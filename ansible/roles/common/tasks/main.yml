@@ -1,0 +1,201 @@
+---
+# Common setup for all VoIPBin VMs: time sync, Docker, basic packages.
+
+# --- Time synchronization ---
+- name: Remove conflicting NTP packages
+  apt:
+    name:
+      - chrony
+      - ntp
+      - openntpd
+    state: absent
+    purge: yes
+  ignore_errors: yes
+
+- name: Unmask systemd-timesyncd
+  systemd:
+    name: systemd-timesyncd
+    masked: no
+
+- name: Enable and start systemd-timesyncd
+  systemd:
+    name: systemd-timesyncd
+    state: started
+    enabled: yes
+
+- name: Enable NTP synchronization
+  command: timedatectl set-ntp on
+  changed_when: false
+
+# --- Docker installation ---
+- name: Check if Docker is installed
+  command: docker --version
+  register: docker_installed
+  changed_when: false
+  failed_when: false
+
+- name: Fix interrupted dpkg if needed
+  command: dpkg --configure -a
+  changed_when: false
+  ignore_errors: yes
+  when: docker_installed.rc != 0
+
+- name: Update apt cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+  when: docker_installed.rc != 0
+
+- name: Install Docker dependencies
+  apt:
+    state: present
+    pkg:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+      - python3-pip
+      - jq
+  when: docker_installed.rc != 0
+
+- name: Add Docker GPG key
+  apt_key:
+    url: "https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg"
+    state: present
+  when: docker_installed.rc != 0
+
+- name: Add Docker repository
+  apt_repository:
+    repo: "deb [arch=amd64] https://download.docker.com/linux/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} stable"
+    state: present
+    update_cache: yes
+  when: docker_installed.rc != 0
+
+- name: Install Docker
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-compose-plugin
+    state: present
+  when: docker_installed.rc != 0
+
+- name: Install Docker Python library
+  pip:
+    name:
+      - docker
+      - docker-compose
+    state: present
+    executable: pip3
+  when: docker_installed.rc != 0
+
+- name: Ensure Docker service is running
+  systemd:
+    name: docker
+    state: started
+    enabled: yes
+
+# --- Basic packages ---
+- name: Install common utilities
+  apt:
+    state: present
+    update_cache: yes
+    cache_valid_time: 3600
+    pkg:
+      - curl
+      - jq
+      - python3
+      - htop
+      - net-tools
+
+# --- Node Exporter (Prometheus metrics) ---
+- name: Create node_exporter group
+  group:
+    name: node_exporter
+    system: true
+    state: present
+  tags: ['node-exporter']
+
+- name: Create node_exporter user
+  user:
+    name: node_exporter
+    group: node_exporter
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+  tags: ['node-exporter']
+
+- name: Check if node_exporter is installed
+  stat:
+    path: /usr/local/bin/node_exporter
+  register: node_exporter_binary
+  tags: ['node-exporter']
+
+- name: Download node_exporter binary
+  get_url:
+    url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    dest: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    mode: '0644'
+  when: not node_exporter_binary.stat.exists
+  tags: ['node-exporter']
+
+- name: Extract node_exporter binary
+  unarchive:
+    src: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    dest: /tmp
+    remote_src: true
+  when: not node_exporter_binary.stat.exists
+  tags: ['node-exporter']
+
+- name: Install node_exporter binary
+  copy:
+    src: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+    dest: /usr/local/bin/node_exporter
+    mode: '0755'
+    owner: root
+    group: root
+    remote_src: true
+  when: not node_exporter_binary.stat.exists
+  tags: ['node-exporter']
+
+- name: Clean up node_exporter download
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    - "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64"
+  when: not node_exporter_binary.stat.exists
+  tags: ['node-exporter']
+
+- name: Create node_exporter systemd service
+  copy:
+    content: |
+      [Unit]
+      Description=Prometheus Node Exporter
+      After=network.target
+
+      [Service]
+      Type=simple
+      User=node_exporter
+      Group=node_exporter
+      ExecStart=/usr/local/bin/node_exporter --web.listen-address={{ node_exporter_listen_address }}
+      Restart=always
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/node_exporter.service
+    mode: '0644'
+  notify: Restart node_exporter
+  tags: ['node-exporter']
+
+- name: Enable and start node_exporter service
+  systemd:
+    name: node_exporter
+    state: started
+    enabled: true
+    daemon_reload: true
+  tags: ['node-exporter']

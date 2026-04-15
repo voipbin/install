@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: square-talk
+  namespace: bin-manager
+  labels:
+    app: square-talk
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: square-talk
+  template:
+    metadata:
+      labels:
+        app: square-talk
+    spec:
+      containers:
+        - name: square-talk
+          image: voipbin/square-talk
+          ports:
+            - containerPort: 80
+              name: http
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "32Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: square-talk
+  namespace: bin-manager
+  labels:
+    app: square-talk
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+  selector:
+    app: square-talk

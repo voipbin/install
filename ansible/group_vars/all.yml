@@ -1,0 +1,41 @@
+---
+# Shared variables for all hosts
+# Values are populated from Terraform outputs via dynamic inventory
+# or overridden with --extra-vars at runtime.
+
+# GCP Settings (populated by dynamic inventory)
+gcp_project_id: "{{ lookup('env', 'VOIPBIN_GCP_PROJECT_ID') | default('', true) }}"
+region: "{{ lookup('env', 'VOIPBIN_REGION') | default('us-central1', true) }}"
+zone: "{{ lookup('env', 'VOIPBIN_ZONE') | default(region ~ '-a', true) }}"
+
+# Domain
+domain: "{{ lookup('env', 'VOIPBIN_DOMAIN') | default('voipbin.net', true) }}"
+
+# Docker image tag
+image_tag: "{{ lookup('env', 'VOIPBIN_IMAGE_TAG') | default('latest', true) }}"
+
+# Deployment settings
+app_user: root
+app_group: root
+
+# Load Balancer IPs (populated by dynamic inventory or extra-vars)
+# These are internal (VPC) IPs assigned by Terraform to forwarding rules.
+kamailio_external_lb_ip: ""
+kamailio_internal_lb_ip: ""
+redis_lb_ip: ""
+rabbitmq_lb_ip: ""
+asterisk_call_lb_ip: ""
+asterisk_registrar_lb_ip: ""
+asterisk_conference_lb_ip: ""
+
+# Credentials (pass via --extra-vars or environment)
+redis_password: "{{ lookup('env', 'VOIPBIN_REDIS_PASSWORD') | default('', true) }}"
+rabbitmq_user: "{{ lookup('env', 'VOIPBIN_RABBITMQ_USER') | default('voipbin', true) }}"
+rabbitmq_password: "{{ lookup('env', 'VOIPBIN_RABBITMQ_PASSWORD') | default('', true) }}"
+
+# PSTN whitelist (comma-separated IPs)
+pstn_whitelist_ips: "{{ lookup('env', 'VOIPBIN_PSTN_WHITELIST_IPS') | default('', true) }}"
+
+# Node Exporter
+node_exporter_version: "1.7.0"
+node_exporter_listen_address: "0.0.0.0:9100"

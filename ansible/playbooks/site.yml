@@ -1,0 +1,29 @@
+---
+# Main playbook: deploys all VoIPBin VoIP infrastructure.
+# Includes common setup, Kamailio, and RTPEngine roles.
+#
+# Usage:
+#   ansible-playbook playbooks/site.yml
+#   ansible-playbook playbooks/site.yml --tags docker
+#   ansible-playbook playbooks/site.yml --tags kamailio
+#   ansible-playbook playbooks/site.yml --tags rtpengine
+
+- name: Deploy Kamailio SIP Proxy
+  hosts: kamailio
+  gather_facts: yes
+  roles:
+    - role: common
+      tags: ['common', 'docker']
+
+    - role: kamailio
+      tags: ['kamailio', 'deploy']
+
+- name: Deploy RTPEngine Media Proxy
+  hosts: rtpengine
+  gather_facts: yes
+  roles:
+    - role: common
+      tags: ['common', 'docker']
+
+    - role: rtpengine
+      tags: ['rtpengine', 'deploy']

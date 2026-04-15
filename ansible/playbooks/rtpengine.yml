@@ -1,0 +1,17 @@
+---
+# RTPEngine-only playbook.
+#
+# Usage:
+#   ansible-playbook playbooks/rtpengine.yml
+#   ansible-playbook playbooks/rtpengine.yml --tags config
+#   ansible-playbook playbooks/rtpengine.yml --tags deploy
+
+- name: Deploy RTPEngine Media Proxy
+  hosts: rtpengine
+  gather_facts: yes
+  roles:
+    - role: common
+      tags: ['common', 'docker']
+
+    - role: rtpengine
+      tags: ['rtpengine', 'deploy']

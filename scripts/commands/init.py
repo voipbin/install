@@ -1,0 +1,183 @@
+"""The 'init' command: wizard + preflight + GCP setup + config generation."""
+
+import sys
+
+from scripts.config import InstallerConfig
+from scripts.display import (
+    console,
+    create_progress,
+    print_banner,
+    print_cost_table,
+    print_error,
+    print_header,
+    print_result_box,
+    print_step,
+    print_success,
+    print_warning,
+    confirm,
+)
+from scripts.gcp import (
+    check_quotas,
+    create_kms_keyring,
+    create_service_account,
+    display_quota_results,
+    enable_apis,
+)
+from scripts.preflight import (
+    check_gcp_auth,
+    check_gcp_billing,
+    check_gcp_project,
+    check_prerequisites,
+    run_preflight_display,
+)
+from scripts.secretmgr import generate_and_encrypt, write_sops_config
+from scripts.wizard import run_wizard
+
+
+def cmd_init(
+    reconfigure: bool = False,
+    config_path: str = "",
+    skip_api_enable: bool = False,
+    skip_quota_check: bool = False,
+) -> None:
+    """Run the full init flow: wizard → preflight → GCP setup → config."""
+    print_banner()
+
+    cfg = InstallerConfig()
+
+    # --- If config exists and not reconfiguring, ask ---
+    if cfg.exists() and not reconfigure and not config_path:
+        console.print("  [yellow]Configuration already exists.[/yellow]")
+        if not confirm("Reconfigure?", default=False):
+            console.print("\n  Using existing config. Run [bold]voipbin-install apply[/bold] to deploy.")
+            return
+
+    # --- Step 1: Preflight checks ---
+    results = check_prerequisites()
+    all_ok = run_preflight_display(results)
+    if not all_ok:
+        print_error("Some prerequisites are missing. Install them and re-run.")
+        sys.exit(1)
+
+    # --- Step 2: GCP auth ---
+    print_header("Checking GCP credentials...")
+    account = check_gcp_auth()
+    if not account:
+        print_error("Not authenticated with gcloud. Run: gcloud auth login")
+        sys.exit(1)
+    print_success(f"Authenticated as {account}")
+
+    # --- Step 3: Wizard (or load from file) ---
+    if config_path:
+        cfg = InstallerConfig()
+        cfg._dir = __import__("pathlib").Path(config_path).parent
+        cfg.load()
+        wizard_values = cfg.to_dict()
+    else:
+        existing = None
+        if cfg.exists():
+            cfg.load()
+            existing = cfg.to_dict()
+        wizard_values = run_wizard(existing_config=existing)
+        if wizard_values is None:
+            sys.exit(0)
+
+    cfg.set_many(wizard_values)
+    cfg.apply_defaults()
+
+    project_id = cfg.get("gcp_project_id")
+    region = cfg.get("region")
+
+    # --- Step 4: Validate project and billing ---
+    print_header("Validating GCP project...")
+    if not check_gcp_project(project_id):
+        print_error(f"Cannot access project '{project_id}'. Check the project ID and your permissions.")
+        sys.exit(1)
+    print_success(f"Project: {project_id}")
+
+    if not check_gcp_billing(project_id):
+        print_error(f"Billing is not enabled on project '{project_id}'.")
+        print_error("Enable it at: https://console.cloud.google.com/billing")
+        sys.exit(1)
+    print_success("Billing enabled")
+
+    # --- Step 5: Quota check ---
+    if not skip_quota_check:
+        quota_results = check_quotas(project_id, region)
+        quotas_ok = display_quota_results(quota_results, project_id)
+        if not quotas_ok:
+            print_warning("Some quotas are insufficient. Deployment may fail.")
+            print_warning("Consider requesting increases before running 'apply'.")
+    else:
+        print_step("[dim]Skipping quota check (--skip-quota-check)[/dim]")
+
+    # --- Step 6: Enable APIs ---
+    if not skip_api_enable:
+        print_header("Enabling GCP APIs...")
+        with create_progress() as progress:
+            task = progress.add_task("Enabling APIs...", total=16)
+
+            def on_api(api_name: str) -> None:
+                progress.update(task, advance=1, description=f"Enabling {api_name}...")
+
+            succeeded, failed = enable_apis(project_id, progress_callback=on_api)
+
+        print_success(f"{len(succeeded)} APIs enabled")
+        if failed:
+            print_warning(f"{len(failed)} APIs failed: {', '.join(failed)}")
+            print_warning("Re-run init or enable them manually.")
+    else:
+        print_step("[dim]Skipping API enablement (--skip-api-enable)[/dim]")
+
+    # --- Step 7: Service account ---
+    print_header("Creating installer service account...")
+    sa_email = create_service_account(project_id)
+    if sa_email:
+        print_success(f"Service account: {sa_email}")
+    else:
+        print_warning("Could not create service account. Check IAM permissions.")
+
+    # --- Step 8: KMS ---
+    print_header("Creating KMS key ring...")
+    kms_key_id = create_kms_keyring(project_id)
+    if kms_key_id:
+        print_success("KMS key ring and crypto key ready")
+    else:
+        print_error("Failed to create KMS key. Check permissions.")
+        sys.exit(1)
+
+    # --- Step 9: Secrets ---
+    print_header("Generating secrets...")
+    ok, secrets_dict = generate_and_encrypt(kms_key_id, cfg.secrets_path)
+    if ok:
+        for name in secrets_dict:
+            print_success(f"{name}")
+        print_success("Secrets encrypted with SOPS")
+    else:
+        print_warning("SOPS encryption failed. Secrets written as plaintext — encrypt manually.")
+        print_warning(f"  sops --encrypt --in-place --gcp-kms {kms_key_id} {cfg.secrets_path}")
+
+    # --- Step 10: Write .sops.yaml ---
+    write_sops_config(kms_key_id, cfg._dir)
+
+    # --- Step 11: Save config ---
+    cfg.save()
+
+    # --- Step 12: Summary ---
+    console.print()
+    print_cost_table(cfg.get("gke_type", "zonal"))
+    console.print()
+
+    print_result_box([
+        "[green]✓ Configuration saved[/green]",
+        f"  config.yaml   (non-sensitive)",
+        f"  secrets.yaml  (SOPS-encrypted)",
+        "",
+        f"  Project:  {project_id}",
+        f"  Region:   {region}",
+        f"  Domain:   {cfg.get('domain')}",
+        f"  GKE:      {cfg.get('gke_type')}",
+        f"  TLS:      {cfg.get('tls_strategy')}",
+        "",
+        "  Next: [bold]./voipbin-install apply[/bold]",
+    ])

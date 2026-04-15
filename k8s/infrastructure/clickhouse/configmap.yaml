@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clickhouse-config
+  namespace: infrastructure
+data:
+  users.xml: |
+    <clickhouse>
+      <users>
+        <default>
+          <password></password>
+          <networks>
+            <ip>::/0</ip>
+          </networks>
+          <profile>default</profile>
+          <quota>default</quota>
+        </default>
+      </users>
+    </clickhouse>
+  config.xml: |
+    <clickhouse>
+      <logger>
+        <level>warning</level>
+        <console>1</console>
+      </logger>
+      <listen_host>::</listen_host>
+      <http_port>8123</http_port>
+      <tcp_port>9000</tcp_port>
+      <max_connections>100</max_connections>
+      <keep_alive_timeout>3</keep_alive_timeout>
+      <max_concurrent_queries>50</max_concurrent_queries>
+      <mark_cache_size>5368709120</mark_cache_size>
+    </clickhouse>

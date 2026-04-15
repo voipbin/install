@@ -1,0 +1,47 @@
+---
+# Kamailio-specific variables
+
+# Deployment directory on the VM
+kamailio_deploy_dir: /opt/kamailio-docker
+
+# Docker images
+kamailio_docker_image: "voipbin/voip-kamailio"
+kamailio_docker_tag: "{{ image_tag }}"
+kamailio_exporter_image: "florentchauveau/kamailio_exporter"
+kamailio_exporter_tag: "1.0.1"
+kamailio_exporter_listen_address: "0.0.0.0:9101"
+kamailio_exporter_methods: "tm.stats,sl.stats,core.shmmem,core.uptime,dispatcher.list,tls.info"
+
+# Certificate paths
+certs_deploy_path: "{{ kamailio_deploy_dir }}/certs"
+
+# Kamailio SIP memory settings
+kamailio_shm_size: 128
+kamailio_pkg_size: 128
+
+# RTPEngine ng socket endpoints (populated from rtpengine group)
+# Format: "udp:<ip1>:22222 udp:<ip2>:22222"
+rtpengine_socks: ""
+
+# Homer monitoring
+homer_uri: ""
+
+# Database auth (set via extra-vars for production)
+kamailio_auth_db_url: ""
+kamailio_auth_user_column: "username"
+kamailio_auth_domain_column: "realm"
+kamailio_auth_password_column: "password"
+
+# Pike anti-flood
+pike_enabled: "true"
+pike_rate: 20
+pike_timeout: 300
+
+# Homer HEP capture
+homer_enabled: "false"
+
+# Redis cache for Kamailio
+redis_cache_address: "{{ redis_lb_ip }}"
+
+# Monitoring
+enable_monitoring: true

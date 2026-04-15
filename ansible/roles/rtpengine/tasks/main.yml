@@ -1,0 +1,81 @@
+---
+# RTPEngine Docker deployment tasks.
+
+# --- Stop existing stack before re-deploy ---
+- name: Check if docker-compose.yml exists
+  stat:
+    path: "{{ rtpengine_deploy_dir }}/docker-compose.yml"
+  register: compose_file
+
+- name: Stop RTPEngine Docker Compose stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ rtpengine_deploy_dir }}"
+    state: absent
+  when: compose_file.stat.exists
+  ignore_errors: yes
+  tags: ['deploy']
+
+# --- Create deployment directory ---
+- name: Create RTPEngine deployment directory
+  file:
+    path: "{{ rtpengine_deploy_dir }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+
+# --- Deploy configuration files ---
+- name: Template docker-compose.yml
+  template:
+    src: docker-compose.yml.j2
+    dest: "{{ rtpengine_deploy_dir }}/docker-compose.yml"
+    mode: '0644'
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+  tags: ['compose', 'config']
+  notify: Recreate rtpengine containers
+
+- name: Generate .env file from template
+  template:
+    src: env.j2
+    dest: "{{ rtpengine_deploy_dir }}/.env"
+    mode: '0600'
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+  tags: ['config', 'env']
+  notify: Recreate rtpengine containers
+
+# --- Docker pull and start ---
+- name: Pull latest Docker images
+  community.docker.docker_compose_v2:
+    project_src: "{{ rtpengine_deploy_dir }}"
+    state: present
+    pull: "always"
+  tags: ['deploy']
+
+- name: Start RTPEngine Docker Compose stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ rtpengine_deploy_dir }}"
+    state: present
+  tags: ['deploy']
+  register: compose_result
+
+# --- Health check ---
+- name: Wait for RTPEngine HTTP API to be healthy
+  wait_for:
+    port: "{{ rtpengine_listen_http }}"
+    host: 127.0.0.1
+    delay: 10
+    timeout: 120
+  tags: ['deploy', 'verify']
+
+- name: Display deployment status
+  debug:
+    msg: "RTPEngine Docker deployment completed successfully on {{ inventory_hostname }}"
+  tags: ['deploy']
+
+# --- Cleanup ---
+- name: Prune unused Docker images
+  community.docker.docker_prune:
+    images: true
+  tags: ['deploy', 'cleanup']

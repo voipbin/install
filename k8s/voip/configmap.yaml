@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: voipbin-voip-config
+  namespace: voip
+data:
+  DOMAIN: PLACEHOLDER_DOMAIN
+  RECORDING_BUCKET_NAME: PLACEHOLDER_RECORDING_BUCKET_NAME

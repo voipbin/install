@@ -1,0 +1,129 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: asterisk-conference
+  namespace: voip
+  labels:
+    app: asterisk-conference
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: asterisk-conference
+  template:
+    metadata:
+      labels:
+        app: asterisk-conference
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "2112"
+    spec:
+      terminationGracePeriodSeconds: 7200
+      volumes:
+        - name: shared-tmp
+          emptyDir: {}
+        - name: shared-asterisk-spool
+          emptyDir: {}
+      containers:
+        - name: asterisk-proxy
+          image: voipbin/voip-asterisk-proxy
+          command:
+            - "./asterisk-proxy"
+          volumeMounts:
+            - name: shared-tmp
+              mountPath: /tmp
+            - name: shared-asterisk-spool
+              mountPath: /var/spool/asterisk
+          env:
+            - name: ARI_ADDRESS
+              value: "localhost:8088"
+            - name: ARI_ACCOUNT
+              value: "asterisk:asterisk"
+            - name: ARI_SUBSCRIBE_ALL
+              value: "true"
+            - name: ARI_APPLICATION
+              value: "voipbin"
+            - name: AMI_HOST
+              value: "127.0.0.1"
+            - name: AMI_PORT
+              value: "5038"
+            - name: AMI_USERNAME
+              value: "asterisk"
+            - name: AMI_PASSWORD
+              value: "asterisk"
+            - name: AMI_EVENT_FILTER
+              value: ""
+            - name: RABBITMQ_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: RABBITMQ_ADDRESS
+            - name: RABBITMQ_QUEUE_LISTEN
+              value: "asterisk.conference.request"
+            - name: REDIS_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: REDIS_ADDRESS
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: REDIS_PASSWORD
+            - name: REDIS_DATABASE
+              value: "1"
+            - name: PROMETHEUS_ENDPOINT
+              value: "/metrics"
+            - name: PROMETHEUS_LISTEN_ADDRESS
+              value: ":2113"
+            - name: RECORDING_BUCKET_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: voipbin-voip-config
+                  key: RECORDING_BUCKET_NAME
+            - name: RECORDING_ASTERISK_DIRECTORY
+              value: /var/spool/asterisk/recording
+            - name: RECORDING_BUCKET_DIRECTORY
+              value: recording
+          resources:
+            requests:
+              cpu: "5m"
+              memory: "5M"
+            limits:
+              cpu: "50m"
+              memory: "50M"
+        - name: asterisk
+          image: voipbin/voip-asterisk-conference
+          volumeMounts:
+            - name: shared-tmp
+              mountPath: /tmp
+            - name: shared-asterisk-spool
+              mountPath: /var/spool/asterisk
+          ports:
+            - containerPort: 5060
+              name: sip-tcp
+              protocol: TCP
+            - containerPort: 5060
+              name: sip-udp
+              protocol: UDP
+            - containerPort: 8088
+              name: ari
+          env:
+            - name: DOMAIN
+              valueFrom:
+                configMapKeyRef:
+                  name: voipbin-voip-config
+                  key: DOMAIN
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "20M"
+            limits:
+              cpu: "100m"
+              memory: "200M"
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /prestop.sh

@@ -1,0 +1,55 @@
+---
+# RTPEngine-specific variables
+
+# Deployment directory on the VM
+rtpengine_deploy_dir: /opt/rtpengine-docker
+
+# Docker images
+rtpengine_docker_image: "voipbin/voip-rtpengine"
+rtpengine_docker_tag: "{{ image_tag }}"
+
+# Interface mode: 'auto' detects IPs from GCP metadata
+rtpengine_interface_mode: auto
+
+# HTTP API (health check and metrics)
+rtpengine_listen_http: 9101
+
+# UDP ng control protocol (used by Kamailio)
+rtpengine_listen_ng: 22222
+
+# CLI interface (debugging)
+rtpengine_listen_cli: "127.0.0.1:2220"
+
+# Port range for RTP media
+rtpengine_port_min: 20000
+rtpengine_port_max: 65535
+
+# Timeouts
+rtpengine_timeout: 60
+rtpengine_silent_timeout: 3600
+
+# Logging
+rtpengine_log_level: 6
+rtpengine_log_facility: daemon
+
+# Performance
+rtpengine_num_threads: 4
+rtpengine_delete_delay: 30
+rtpengine_tos: 184
+
+# Homer/HEP Integration
+rtpengine_homer_server: ""
+rtpengine_homer_protocol: udp
+rtpengine_homer_id: 2001
+
+# Redis session replication
+rtpengine_redis_address: "{{ redis_lb_ip }}"
+rtpengine_redis_port: 6379
+rtpengine_redis_db: 2
+rtpengine_redis_num_threads: 4
+
+# Recording
+rtpengine_recording_dir: "/var/spool/rtpengine"
+
+# Monitoring
+enable_monitoring: true

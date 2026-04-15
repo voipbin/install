@@ -1,0 +1,18 @@
+# Minimum GCP quotas for VoIPBin deployment
+quotas:
+  - metric: CPUS
+    minimum: 12
+    default_new_project: 8
+    description: "vCPUs in selected region"
+  - metric: IN_USE_ADDRESSES
+    minimum: 10
+    default_new_project: 8
+    description: "In-use external IP addresses"
+  - metric: STATIC_ADDRESSES
+    minimum: 4
+    default_new_project: 8
+    description: "Static external IP addresses"
+  - metric: SSD_TOTAL_GB
+    minimum: 100
+    default_new_project: 500
+    description: "Total SSD disk space (GB)"

@@ -1,0 +1,33 @@
+# Generated config (user-specific)
+config.yaml
+secrets.yaml
+.sops.yaml
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/.terraform.lock.hcl
+
+# Ansible
+*.retry
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Claude Code local artifacts
+.claude/
+
+# Deployment state
+.voipbin-state.yaml
+
+# Pytest
+.pytest_cache/

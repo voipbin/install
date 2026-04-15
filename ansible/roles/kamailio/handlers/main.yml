@@ -1,0 +1,17 @@
+---
+- name: Recreate kamailio containers
+  community.docker.docker_compose_v2:
+    project_src: "{{ kamailio_deploy_dir }}"
+    state: restarted
+    pull: "always"
+  notify: Prune unused Docker images after kamailio restart
+
+- name: Prune unused Docker images after kamailio restart
+  community.docker.docker_prune:
+    images: true
+
+- name: Restart node_exporter
+  systemd:
+    name: node_exporter
+    state: restarted
+    daemon_reload: true

@@ -1,0 +1,17 @@
+---
+- name: Recreate rtpengine containers
+  community.docker.docker_compose_v2:
+    project_src: "{{ rtpengine_deploy_dir }}"
+    state: restarted
+    pull: "always"
+  notify: Prune unused Docker images after rtpengine restart
+
+- name: Prune unused Docker images after rtpengine restart
+  community.docker.docker_prune:
+    images: true
+
+- name: Restart node_exporter
+  systemd:
+    name: node_exporter
+    state: restarted
+    daemon_reload: true
