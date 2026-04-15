@@ -4,30 +4,53 @@ import base64
 import os
 import re
 import secrets
+import shlex
+import shutil
 import string
 import subprocess
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 
 INSTALLER_DIR = Path(__file__).resolve().parent.parent
 
+# Allowed characters for GCP identifiers used in commands
+_SAFE_ID_RE = re.compile(r"^[a-zA-Z0-9._:/@-]+$")
+
+
+def _validate_cmd_arg(value: str, name: str) -> None:
+    """Validate that a value is safe to include in a command argument.
+
+    Raises ValueError if the value contains shell metacharacters or
+    other potentially dangerous characters.
+    """
+    if not value:
+        return
+    if not _SAFE_ID_RE.match(value):
+        raise ValueError(
+            f"Unsafe characters in {name}: {value!r}. "
+            "Only alphanumerics, dots, dashes, underscores, colons, slashes, and @ are allowed."
+        )
+
 
 def run_cmd(
-    cmd: str,
+    cmd: Union[str, list[str]],
     capture: bool = True,
     check: bool = False,
     timeout: int = 300,
 ) -> subprocess.CompletedProcess:
-    """Run a shell command and return the CompletedProcess result.
+    """Run a command and return the CompletedProcess result.
 
-    Returns the CompletedProcess object so callers can inspect
-    returncode, stdout, and stderr independently.
+    Accepts either a command string (split via shlex) or a list of
+    arguments. Never uses shell=True to avoid command injection.
     """
+    if isinstance(cmd, str):
+        args = shlex.split(cmd)
+    else:
+        args = cmd
     return subprocess.run(
-        cmd,
-        shell=True,
+        args,
         capture_output=capture,
         text=True,
         check=check,
@@ -36,7 +59,7 @@ def run_cmd(
 
 
 def run_cmd_with_retry(
-    cmd: str,
+    cmd: Union[str, list[str]],
     retries: int = 3,
     delay: float = 5.0,
     backoff: float = 2.0,
@@ -57,9 +80,8 @@ def run_cmd_with_retry(
 
 
 def check_tool_exists(tool: str) -> bool:
-    """Return True if *tool* is on PATH."""
-    result = run_cmd(f"command -v {tool}", capture=True)
-    return result.returncode == 0
+    """Return True if *tool* is on PATH. Uses shutil.which (no shell)."""
+    return shutil.which(tool) is not None
 
 
 def parse_semver(version_string: str) -> tuple[int, int, int]:

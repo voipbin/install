@@ -15,7 +15,7 @@ from scripts.display import (
     print_success,
     print_warning,
 )
-from scripts.utils import INSTALLER_DIR, run_cmd, run_cmd_with_retry
+from scripts.utils import INSTALLER_DIR, _validate_cmd_arg, run_cmd, run_cmd_with_retry
 
 
 @dataclass
@@ -35,7 +35,10 @@ def _load_yaml_data(filename: str) -> dict:
 
 def get_project_id() -> Optional[str]:
     """Auto-detect GCP project from gcloud config."""
-    result = run_cmd("gcloud config get-value project", timeout=10)
+    result = run_cmd(
+        ["gcloud", "config", "get-value", "project"],
+        timeout=10,
+    )
     val = result.stdout.strip()
     if result.returncode == 0 and val and val != "(unset)":
         return val
@@ -45,7 +48,7 @@ def get_project_id() -> Optional[str]:
 def get_account_email() -> Optional[str]:
     """Get active gcloud account email."""
     result = run_cmd(
-        'gcloud auth list --filter="status:ACTIVE" --format="value(account)"',
+        ["gcloud", "auth", "list", "--filter=status:ACTIVE", "--format=value(account)"],
         timeout=10,
     )
     if result.returncode == 0 and result.stdout.strip():
@@ -55,10 +58,13 @@ def get_account_email() -> Optional[str]:
 
 def check_quotas(project_id: str, region: str) -> list[QuotaResult]:
     """Check GCP quota availability for the selected region."""
+    _validate_cmd_arg(project_id, "project_id")
+    _validate_cmd_arg(region, "region")
     quota_defs = _load_yaml_data("gcp_quotas.yaml")["quotas"]
 
     result = run_cmd(
-        f"gcloud compute regions describe {region} --project {project_id} --format json",
+        ["gcloud", "compute", "regions", "describe", region,
+         "--project", project_id, "--format", "json"],
         timeout=30,
     )
     if result.returncode != 0:
@@ -121,6 +127,7 @@ def enable_apis(
     progress_callback: Optional[Callable[[str], None]] = None,
 ) -> tuple[list[str], list[str]]:
     """Enable required GCP APIs. Returns (succeeded, failed) lists."""
+    _validate_cmd_arg(project_id, "project_id")
     api_data = _load_yaml_data("gcp_apis.yaml")
     apis = api_data["apis"]
     succeeded: list[str] = []
@@ -130,7 +137,7 @@ def enable_apis(
         if progress_callback:
             progress_callback(api)
         result = run_cmd_with_retry(
-            f"gcloud services enable {api} --project {project_id}",
+            ["gcloud", "services", "enable", api, "--project", project_id],
             retries=3,
             delay=10.0,
             timeout=120,
@@ -149,13 +156,15 @@ def create_service_account(
     display_name: str = "VoIPBin Installer Service Account",
 ) -> Optional[str]:
     """Create installer service account and bind IAM roles. Returns SA email."""
+    _validate_cmd_arg(project_id, "project_id")
+    _validate_cmd_arg(sa_name, "sa_name")
     sa_email = f"{sa_name}@{project_id}.iam.gserviceaccount.com"
 
     # Create SA (idempotent — ignore already-exists error)
     run_cmd(
-        f'gcloud iam service-accounts create {sa_name} '
-        f'--display-name="{display_name}" '
-        f'--project={project_id}',
+        ["gcloud", "iam", "service-accounts", "create", sa_name,
+         f"--display-name={display_name}",
+         f"--project={project_id}"],
         timeout=30,
     )
 
@@ -163,11 +172,11 @@ def create_service_account(
     roles_data = _load_yaml_data("gcp_iam_roles.yaml")
     for role in roles_data["roles"]:
         run_cmd_with_retry(
-            f"gcloud projects add-iam-policy-binding {project_id} "
-            f"--member=serviceAccount:{sa_email} "
-            f"--role={role} "
-            f"--condition=None "
-            f"--quiet",
+            ["gcloud", "projects", "add-iam-policy-binding", project_id,
+             f"--member=serviceAccount:{sa_email}",
+             f"--role={role}",
+             "--condition=None",
+             "--quiet"],
             retries=2,
             delay=5.0,
             timeout=30,
@@ -183,21 +192,26 @@ def create_kms_keyring(
     location: str = "global",
 ) -> Optional[str]:
     """Create KMS key ring and crypto key. Returns key resource ID."""
+    _validate_cmd_arg(project_id, "project_id")
+    _validate_cmd_arg(keyring_name, "keyring_name")
+    _validate_cmd_arg(key_name, "key_name")
+    _validate_cmd_arg(location, "location")
+
     # Create keyring (idempotent)
     run_cmd(
-        f"gcloud kms keyrings create {keyring_name} "
-        f"--location={location} --project={project_id}",
+        ["gcloud", "kms", "keyrings", "create", keyring_name,
+         f"--location={location}", f"--project={project_id}"],
         timeout=30,
     )
 
     # Create crypto key with 90-day rotation (idempotent)
     run_cmd(
-        f"gcloud kms keys create {key_name} "
-        f"--keyring={keyring_name} "
-        f"--location={location} "
-        f"--purpose=encryption "
-        f"--rotation-period=7776000s "
-        f"--project={project_id}",
+        ["gcloud", "kms", "keys", "create", key_name,
+         f"--keyring={keyring_name}",
+         f"--location={location}",
+         "--purpose=encryption",
+         "--rotation-period=7776000s",
+         f"--project={project_id}"],
         timeout=30,
     )
 

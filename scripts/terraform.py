@@ -1,6 +1,7 @@
 """Terraform operations for VoIPBin installer."""
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -14,9 +15,10 @@ TFVARS_FILE = TERRAFORM_DIR / "terraform.tfvars.json"
 
 
 def write_tfvars(config: InstallerConfig) -> Path:
-    """Write terraform.tfvars.json from installer config. Returns the file path."""
+    """Write terraform.tfvars.json with restricted permissions (0o600)."""
     tf_vars = config.to_terraform_vars()
-    with open(TFVARS_FILE, "w") as f:
+    fd = os.open(TFVARS_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
         json.dump(tf_vars, f, indent=2)
     return TFVARS_FILE
 
@@ -25,11 +27,11 @@ def terraform_init(config: InstallerConfig) -> bool:
     """Run terraform init. Returns True on success."""
     write_tfvars(config)
     project_id = config.get("gcp_project_id", "")
-    cmd = (
-        f"terraform -chdir={TERRAFORM_DIR} init"
-        f" -backend-config=prefix=voipbin/{project_id}"
-    )
-    print_step(f"Running: terraform init")
+    cmd = [
+        "terraform", f"-chdir={TERRAFORM_DIR}", "init",
+        f"-backend-config=prefix=voipbin/{project_id}",
+    ]
+    print_step("Running: terraform init")
     result = run_cmd(cmd, capture=True, timeout=300)
     if result.returncode != 0:
         print_error(f"terraform init failed:\n{result.stderr}")
@@ -41,11 +43,10 @@ def terraform_init(config: InstallerConfig) -> bool:
 def terraform_plan(config: InstallerConfig) -> bool:
     """Run terraform plan. Returns True on success."""
     write_tfvars(config)
-    cmd = (
-        f"terraform -chdir={TERRAFORM_DIR} plan"
-        f" -var-file={TFVARS_FILE}"
-        f" -out=tfplan"
-    )
+    cmd = [
+        "terraform", f"-chdir={TERRAFORM_DIR}", "plan",
+        f"-var-file={TFVARS_FILE}", "-out=tfplan",
+    ]
     print_step("Running: terraform plan")
     result = run_cmd(cmd, capture=True, timeout=600)
     if result.returncode != 0:
@@ -60,12 +61,12 @@ def terraform_plan(config: InstallerConfig) -> bool:
 def terraform_apply(config: InstallerConfig, auto_approve: bool = False) -> bool:
     """Run terraform apply. Returns True on success."""
     write_tfvars(config)
-    approve_flag = "-auto-approve" if auto_approve else ""
-    cmd = (
-        f"terraform -chdir={TERRAFORM_DIR} apply"
-        f" {approve_flag}"
-        f" -var-file={TFVARS_FILE}"
-    )
+    cmd = [
+        "terraform", f"-chdir={TERRAFORM_DIR}", "apply",
+        f"-var-file={TFVARS_FILE}",
+    ]
+    if auto_approve:
+        cmd.append("-auto-approve")
     print_step("Running: terraform apply")
     result = run_cmd(cmd, capture=False, timeout=1800)
     if result.returncode != 0:
@@ -78,12 +79,12 @@ def terraform_apply(config: InstallerConfig, auto_approve: bool = False) -> bool
 def terraform_destroy(config: InstallerConfig, auto_approve: bool = False) -> bool:
     """Run terraform destroy. Returns True on success."""
     write_tfvars(config)
-    approve_flag = "-auto-approve" if auto_approve else ""
-    cmd = (
-        f"terraform -chdir={TERRAFORM_DIR} destroy"
-        f" {approve_flag}"
-        f" -var-file={TFVARS_FILE}"
-    )
+    cmd = [
+        "terraform", f"-chdir={TERRAFORM_DIR}", "destroy",
+        f"-var-file={TFVARS_FILE}",
+    ]
+    if auto_approve:
+        cmd.append("-auto-approve")
     print_step("Running: terraform destroy")
     result = run_cmd(cmd, capture=False, timeout=1800)
     if result.returncode != 0:
@@ -95,7 +96,7 @@ def terraform_destroy(config: InstallerConfig, auto_approve: bool = False) -> bo
 
 def terraform_output(config: InstallerConfig) -> dict[str, Any]:
     """Parse Terraform outputs as a dict. Returns empty dict on failure."""
-    cmd = f"terraform -chdir={TERRAFORM_DIR} output -json"
+    cmd = ["terraform", f"-chdir={TERRAFORM_DIR}", "output", "-json"]
     result = run_cmd(cmd, capture=True, timeout=60)
     if result.returncode != 0:
         print_error(f"terraform output failed:\n{result.stderr}")
@@ -111,7 +112,7 @@ def terraform_output(config: InstallerConfig) -> dict[str, Any]:
 
 def terraform_resource_count(config: InstallerConfig) -> int:
     """Return the number of resources in the Terraform state, or -1 on error."""
-    cmd = f"terraform -chdir={TERRAFORM_DIR} state list"
+    cmd = ["terraform", f"-chdir={TERRAFORM_DIR}", "state", "list"]
     result = run_cmd(cmd, capture=True, timeout=60)
     if result.returncode != 0:
         return -1

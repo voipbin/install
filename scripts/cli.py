@@ -29,13 +29,15 @@ def cli():
 @click.option("--config", "config_path", type=click.Path(), default="", help="Path to existing config.yaml")
 @click.option("--skip-api-enable", is_flag=True, help="Skip GCP API enablement")
 @click.option("--skip-quota-check", is_flag=True, help="Skip GCP quota validation")
-def init(reconfigure, config_path, skip_api_enable, skip_quota_check):
+@click.option("--dry-run", is_flag=True, help="Show what would be done without making changes")
+def init(reconfigure, config_path, skip_api_enable, skip_quota_check, dry_run):
     """Initialize VoIPBin configuration and prepare GCP project."""
     cmd_init(
         reconfigure=reconfigure,
         config_path=config_path,
         skip_api_enable=skip_api_enable,
         skip_quota_check=skip_quota_check,
+        dry_run=dry_run,
     )
 
 

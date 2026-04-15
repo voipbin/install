@@ -97,14 +97,21 @@ PREREQUISITES = [
 
 def check_prerequisites() -> list[PreflightResult]:
     """Check all prerequisite tools and return results."""
+    from scripts.utils import check_tool_exists, version_gte
+
     results: list[PreflightResult] = []
     for prereq in PREREQUISITES:
         tool = prereq["tool"]
-        result = run_cmd(f"{tool} {prereq['flag']}", timeout=30)
+        if not check_tool_exists(tool):
+            results.append(PreflightResult(
+                tool=tool, version="", ok=False,
+                required=prereq["min"], hint=prereq["hint"],
+            ))
+            continue
+        cmd = [tool] + prereq["flag"].split()
+        result = run_cmd(cmd, timeout=30)
         output = result.stdout + result.stderr
         version = prereq["parse"](output) if result.returncode == 0 else ""
-
-        from scripts.utils import version_gte
 
         ok = bool(version) and version_gte(version, prereq["min"])
         results.append(PreflightResult(
@@ -120,7 +127,7 @@ def check_prerequisites() -> list[PreflightResult]:
 def check_gcp_auth() -> Optional[str]:
     """Check gcloud authentication. Returns account email or None."""
     result = run_cmd(
-        'gcloud auth list --filter="status:ACTIVE" --format="value(account)"',
+        ["gcloud", "auth", "list", "--filter=status:ACTIVE", "--format=value(account)"],
         timeout=15,
     )
     if result.returncode != 0 or not result.stdout.strip():
@@ -130,8 +137,10 @@ def check_gcp_auth() -> Optional[str]:
 
 def check_gcp_project(project_id: str) -> bool:
     """Check that the GCP project exists and is accessible."""
+    from scripts.utils import _validate_cmd_arg
+    _validate_cmd_arg(project_id, "project_id")
     result = run_cmd(
-        f"gcloud projects describe {project_id} --format='value(projectId)'",
+        ["gcloud", "projects", "describe", project_id, "--format=value(projectId)"],
         timeout=15,
     )
     return result.returncode == 0 and project_id in result.stdout
@@ -139,8 +148,11 @@ def check_gcp_project(project_id: str) -> bool:
 
 def check_gcp_billing(project_id: str) -> bool:
     """Check that billing is enabled on the project."""
+    from scripts.utils import _validate_cmd_arg
+    _validate_cmd_arg(project_id, "project_id")
     result = run_cmd(
-        f"gcloud billing projects describe {project_id} --format='value(billingEnabled)'",
+        ["gcloud", "billing", "projects", "describe", project_id,
+         "--format=value(billingEnabled)"],
         timeout=15,
     )
     return result.returncode == 0 and "true" in result.stdout.lower()

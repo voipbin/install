@@ -2,7 +2,10 @@
 
 import sys
 
+import yaml
+
 from scripts.config import InstallerConfig
+from scripts.utils import INSTALLER_DIR
 from scripts.display import (
     console,
     create_progress,
@@ -34,14 +37,26 @@ from scripts.secretmgr import generate_and_encrypt, write_sops_config
 from scripts.wizard import run_wizard
 
 
+def _count_gcp_apis() -> int:
+    """Count the number of GCP APIs defined in config."""
+    path = INSTALLER_DIR / "config" / "gcp_apis.yaml"
+    with open(path) as f:
+        data = yaml.safe_load(f)
+    return len(data.get("apis", []))
+
+
 def cmd_init(
     reconfigure: bool = False,
     config_path: str = "",
     skip_api_enable: bool = False,
     skip_quota_check: bool = False,
+    dry_run: bool = False,
 ) -> None:
     """Run the full init flow: wizard → preflight → GCP setup → config."""
     print_banner()
+
+    if dry_run:
+        console.print("  [bold yellow]DRY RUN[/bold yellow] — no changes will be made\n")
 
     cfg = InstallerConfig()
 
@@ -111,11 +126,39 @@ def cmd_init(
     else:
         print_step("[dim]Skipping quota check (--skip-quota-check)[/dim]")
 
+    # --- Dry run stops here: show what would be done ---
+    if dry_run:
+        console.print()
+        print_result_box([
+            "[yellow]DRY RUN — the following actions would be performed:[/yellow]",
+            "",
+            f"  1. Enable {_count_gcp_apis()} GCP APIs on project {project_id}",
+            f"  2. Create service account: voipbin-installer@{project_id}.iam.gserviceaccount.com",
+            f"  3. Create KMS key ring in {region} for SOPS encryption",
+            f"  4. Generate 6 secrets (jwt_key, cloudsql_password, redis_password,",
+            f"     rabbitmq_user, rabbitmq_password, api_signing_key)",
+            f"  5. Encrypt secrets.yaml with SOPS + GCP KMS",
+            f"  6. Write config.yaml and .sops.yaml",
+            "",
+            f"  Project:  {project_id}",
+            f"  Region:   {region}",
+            f"  Domain:   {cfg.get('domain')}",
+            f"  GKE:      {cfg.get('gke_type')}",
+            f"  TLS:      {cfg.get('tls_strategy')}",
+            "",
+            "  No files written. No GCP resources created.",
+            "  Run without --dry-run to proceed.",
+        ], style="yellow")
+
+        console.print()
+        print_cost_table(cfg.get("gke_type", "zonal"))
+        return
+
     # --- Step 6: Enable APIs ---
     if not skip_api_enable:
         print_header("Enabling GCP APIs...")
         with create_progress() as progress:
-            task = progress.add_task("Enabling APIs...", total=16)
+            task = progress.add_task("Enabling APIs...", total=_count_gcp_apis())
 
             def on_api(api_name: str) -> None:
                 progress.update(task, advance=1, description=f"Enabling {api_name}...")
@@ -154,8 +197,10 @@ def cmd_init(
             print_success(f"{name}")
         print_success("Secrets encrypted with SOPS")
     else:
-        print_warning("SOPS encryption failed. Secrets written as plaintext — encrypt manually.")
-        print_warning(f"  sops --encrypt --in-place --gcp-kms {kms_key_id} {cfg.secrets_path}")
+        print_error("SOPS encryption failed. Cannot proceed without encrypted secrets.")
+        print_error(f"  Fix SOPS/KMS and re-run, or encrypt manually:")
+        print_error(f"  sops --encrypt --in-place --gcp-kms {kms_key_id} {cfg.secrets_path}")
+        sys.exit(1)
 
     # --- Step 10: Write .sops.yaml ---
     write_sops_config(kms_key_id, cfg._dir)

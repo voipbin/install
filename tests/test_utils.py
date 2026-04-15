@@ -2,11 +2,22 @@
 
 import sys
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 # Ensure project root is on path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.utils import generate_key, generate_password, parse_semver, version_gte
+from scripts.utils import (
+    _validate_cmd_arg,
+    check_tool_exists,
+    generate_key,
+    generate_password,
+    parse_semver,
+    run_cmd,
+    version_gte,
+)
 
 
 class TestParseSemver:
@@ -81,3 +92,80 @@ class TestGenerateKey:
         k1 = generate_key(32)
         k2 = generate_key(32)
         assert k1 != k2
+
+
+class TestCheckToolExists:
+    def test_finds_python3(self):
+        assert check_tool_exists("python3") is True
+
+    def test_missing_tool(self):
+        assert check_tool_exists("this_tool_does_not_exist_xyzzy") is False
+
+    @patch("scripts.utils.shutil.which")
+    def test_uses_shutil_which(self, mock_which):
+        mock_which.return_value = "/usr/bin/mytool"
+        assert check_tool_exists("mytool") is True
+        mock_which.assert_called_once_with("mytool")
+
+    @patch("scripts.utils.shutil.which")
+    def test_returns_false_when_which_none(self, mock_which):
+        mock_which.return_value = None
+        assert check_tool_exists("nope") is False
+
+
+class TestValidateCmdArg:
+    def test_valid_project_id(self):
+        _validate_cmd_arg("my-project-123", "project_id")  # no exception
+
+    def test_valid_region(self):
+        _validate_cmd_arg("us-central1", "region")  # no exception
+
+    def test_valid_email_format(self):
+        _validate_cmd_arg("sa@project.iam.gserviceaccount.com", "email")
+
+    def test_valid_kms_path(self):
+        _validate_cmd_arg(
+            "projects/my-proj/locations/global/keyRings/ring/cryptoKeys/key",
+            "kms_key",
+        )
+
+    def test_empty_string_allowed(self):
+        _validate_cmd_arg("", "anything")  # no exception
+
+    def test_rejects_semicolon(self):
+        with pytest.raises(ValueError, match="Unsafe characters"):
+            _validate_cmd_arg("proj; rm -rf /", "project_id")
+
+    def test_rejects_backtick(self):
+        with pytest.raises(ValueError, match="Unsafe characters"):
+            _validate_cmd_arg("`whoami`", "project_id")
+
+    def test_rejects_dollar(self):
+        with pytest.raises(ValueError, match="Unsafe characters"):
+            _validate_cmd_arg("$(cat /etc/passwd)", "project_id")
+
+    def test_rejects_pipe(self):
+        with pytest.raises(ValueError, match="Unsafe characters"):
+            _validate_cmd_arg("proj | cat", "project_id")
+
+    def test_rejects_ampersand(self):
+        with pytest.raises(ValueError, match="Unsafe characters"):
+            _validate_cmd_arg("proj && echo pwned", "project_id")
+
+
+class TestRunCmd:
+    def test_no_shell_true(self):
+        """run_cmd must not use shell=True."""
+        result = run_cmd(["echo", "hello"])
+        assert result.returncode == 0
+        assert "hello" in result.stdout
+
+    def test_accepts_string(self):
+        result = run_cmd("echo hello")
+        assert result.returncode == 0
+        assert "hello" in result.stdout
+
+    def test_accepts_list(self):
+        result = run_cmd(["echo", "world"])
+        assert result.returncode == 0
+        assert "world" in result.stdout
