@@ -144,18 +144,22 @@ class TestDisplayQuotaResults:
 
 
 class TestCreateKmsKeyring:
+    @patch("scripts.gcp.run_cmd_with_retry")
     @patch("scripts.gcp.run_cmd")
-    def test_returns_correct_key_id(self, mock_run_cmd):
-        mock_run_cmd.return_value = MagicMock(returncode=0)
+    def test_returns_correct_key_id(self, mock_run_cmd, mock_retry):
+        mock_run_cmd.return_value = MagicMock(returncode=0, stdout="user@example.com")
+        mock_retry.return_value = MagicMock(returncode=0)
         key_id = create_kms_keyring("my-project")
         assert key_id == (
             "projects/my-project/locations/global"
             "/keyRings/voipbin-sops/cryptoKeys/voipbin-sops-key"
         )
 
+    @patch("scripts.gcp.run_cmd_with_retry")
     @patch("scripts.gcp.run_cmd")
-    def test_custom_names(self, mock_run_cmd):
-        mock_run_cmd.return_value = MagicMock(returncode=0)
+    def test_custom_names(self, mock_run_cmd, mock_retry):
+        mock_run_cmd.return_value = MagicMock(returncode=0, stdout="user@example.com")
+        mock_retry.return_value = MagicMock(returncode=0)
         key_id = create_kms_keyring(
             "test-proj", keyring_name="my-ring", key_name="my-key",
             location="us-east1"
@@ -165,9 +169,100 @@ class TestCreateKmsKeyring:
             "/keyRings/my-ring/cryptoKeys/my-key"
         )
 
+    @patch("scripts.gcp.run_cmd_with_retry")
     @patch("scripts.gcp.run_cmd")
-    def test_calls_gcloud_twice(self, mock_run_cmd):
-        mock_run_cmd.return_value = MagicMock(returncode=0)
+    def test_calls_gcloud_for_keyring_key_and_account(self, mock_run_cmd, mock_retry):
+        mock_run_cmd.return_value = MagicMock(returncode=0, stdout="user@example.com")
+        mock_retry.return_value = MagicMock(returncode=0)
         create_kms_keyring("my-project")
-        # Should call gcloud for keyring creation and then key creation
-        assert mock_run_cmd.call_count == 2
+        # run_cmd: keyring create, key create, get-value account
+        assert mock_run_cmd.call_count == 3
+        # run_cmd_with_retry: IAM binding
+        assert mock_retry.call_count == 1
+
+    @patch("scripts.gcp.run_cmd_with_retry")
+    @patch("scripts.gcp.run_cmd")
+    def test_grants_user_role_for_user_account(self, mock_run_cmd, mock_retry):
+        mock_run_cmd.return_value = MagicMock(
+            returncode=0, stdout="alice@example.com\n"
+        )
+        mock_retry.return_value = MagicMock(returncode=0)
+        create_kms_keyring("my-project")
+        binding_args = mock_retry.call_args[0][0]
+        assert "--member=user:alice@example.com" in binding_args
+        assert "--role=roles/cloudkms.cryptoKeyEncrypterDecrypter" in binding_args
+
+    @patch("scripts.gcp.run_cmd_with_retry")
+    @patch("scripts.gcp.run_cmd")
+    def test_grants_service_account_role_for_sa(self, mock_run_cmd, mock_retry):
+        sa = "installer@my-project.iam.gserviceaccount.com"
+        mock_run_cmd.return_value = MagicMock(returncode=0, stdout=sa)
+        mock_retry.return_value = MagicMock(returncode=0)
+        create_kms_keyring("my-project")
+        binding_args = mock_retry.call_args[0][0]
+        assert f"--member=serviceAccount:{sa}" in binding_args
+
+    @patch("scripts.gcp.print_warning")
+    @patch("scripts.gcp.run_cmd_with_retry")
+    @patch("scripts.gcp.run_cmd")
+    def test_skips_iam_binding_when_no_account(self, mock_run_cmd, mock_retry, mock_warn):
+        mock_run_cmd.return_value = MagicMock(returncode=0, stdout="")
+        create_kms_keyring("my-project")
+        mock_retry.assert_not_called()
+        mock_warn.assert_called_once()
+
+    @patch("scripts.gcp.print_warning")
+    @patch("scripts.gcp.run_cmd_with_retry")
+    @patch("scripts.gcp.run_cmd")
+    def test_skips_iam_binding_when_account_is_unset_literal(
+        self, mock_run_cmd, mock_retry, mock_warn
+    ):
+        # gcloud prints "(unset)" when no account is configured.
+        mock_run_cmd.return_value = MagicMock(returncode=0, stdout="(unset)\n")
+        create_kms_keyring("my-project")
+        mock_retry.assert_not_called()
+        mock_warn.assert_called_once()
+
+    @patch("scripts.gcp.print_warning")
+    @patch("scripts.gcp.run_cmd_with_retry")
+    @patch("scripts.gcp.run_cmd")
+    def test_skips_iam_binding_when_gcloud_account_command_fails(
+        self, mock_run_cmd, mock_retry, mock_warn
+    ):
+        # First two run_cmd calls (keyring/key create) succeed; the third
+        # (gcloud config get-value account) fails — must not trust its stdout.
+        mock_run_cmd.side_effect = [
+            MagicMock(returncode=0, stdout=""),
+            MagicMock(returncode=0, stdout=""),
+            MagicMock(returncode=1, stdout="garbage stdout on error"),
+        ]
+        create_kms_keyring("my-project")
+        mock_retry.assert_not_called()
+        mock_warn.assert_called_once()
+
+    @patch("scripts.gcp.print_warning")
+    @patch("scripts.gcp.run_cmd_with_retry")
+    @patch("scripts.gcp.run_cmd")
+    def test_warns_when_iam_binding_fails(
+        self, mock_run_cmd, mock_retry, mock_warn
+    ):
+        mock_run_cmd.return_value = MagicMock(
+            returncode=0, stdout="alice@example.com"
+        )
+        mock_retry.return_value = MagicMock(returncode=1, stderr="permission denied")
+        create_kms_keyring("my-project")
+        mock_warn.assert_called_once()
+        warn_msg = mock_warn.call_args[0][0]
+        assert "alice@example.com" in warn_msg
+        assert "manually" in warn_msg.lower() or "manual" in warn_msg.lower()
+
+    @patch("scripts.gcp.run_cmd_with_retry")
+    @patch("scripts.gcp.run_cmd")
+    def test_rejects_account_with_unsafe_characters(self, mock_run_cmd, mock_retry):
+        import pytest
+        mock_run_cmd.return_value = MagicMock(
+            returncode=0, stdout="evil; rm -rf /"
+        )
+        with pytest.raises(ValueError):
+            create_kms_keyring("my-project")
+        mock_retry.assert_not_called()

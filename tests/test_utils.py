@@ -2,7 +2,7 @@
 
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -16,6 +16,7 @@ from scripts.utils import (
     generate_password,
     parse_semver,
     run_cmd,
+    run_cmd_with_retry,
     version_gte,
 )
 
@@ -169,3 +170,38 @@ class TestRunCmd:
         result = run_cmd(["echo", "world"])
         assert result.returncode == 0
         assert "world" in result.stdout
+
+    def test_timeout_returns_124_instead_of_raising(self):
+        """run_cmd should swallow TimeoutExpired and return rc=124."""
+        import subprocess
+        with patch(
+            "scripts.utils.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(
+                cmd=["sleep", "5"], timeout=1, output="", stderr=""
+            ),
+        ):
+            result = run_cmd(["sleep", "5"], timeout=1)
+        assert result.returncode == 124
+        assert "timed out after 1s" in result.stderr
+
+
+class TestRunCmdWithRetry:
+    @patch("scripts.utils.run_cmd")
+    def test_does_not_retry_on_timeout(self, mock_run_cmd):
+        """rc=124 (timeout) should bypass the retry loop."""
+        mock_run_cmd.return_value = MagicMock(returncode=124, stderr="timed out")
+        result = run_cmd_with_retry(["foo"], retries=3, delay=0)
+        assert result.returncode == 124
+        assert mock_run_cmd.call_count == 1
+
+    @patch("scripts.utils.time.sleep")
+    @patch("scripts.utils.run_cmd")
+    def test_retries_other_failures(self, mock_run_cmd, mock_sleep):
+        mock_run_cmd.side_effect = [
+            MagicMock(returncode=1),
+            MagicMock(returncode=1),
+            MagicMock(returncode=0),
+        ]
+        result = run_cmd_with_retry(["foo"], retries=3, delay=0)
+        assert result.returncode == 0
+        assert mock_run_cmd.call_count == 3

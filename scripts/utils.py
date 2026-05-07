@@ -44,18 +44,34 @@ def run_cmd(
 
     Accepts either a command string (split via shlex) or a list of
     arguments. Never uses shell=True to avoid command injection.
+
+    On timeout, returns a synthetic CompletedProcess with returncode=124
+    (the coreutils timeout convention) and a clear stderr message rather
+    than letting subprocess.TimeoutExpired propagate. Callers that already
+    check result.returncode will handle timeouts uniformly.
     """
     if isinstance(cmd, str):
         args = shlex.split(cmd)
     else:
         args = cmd
-    return subprocess.run(
-        args,
-        capture_output=capture,
-        text=True,
-        check=check,
-        timeout=timeout,
-    )
+    try:
+        return subprocess.run(
+            args,
+            capture_output=capture,
+            text=True,
+            check=check,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        partial_stdout = exc.stdout if isinstance(exc.stdout, str) else ""
+        partial_stderr = exc.stderr if isinstance(exc.stderr, str) else ""
+        timeout_msg = f"Command timed out after {timeout}s: {' '.join(args)}"
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=124,
+            stdout=partial_stdout,
+            stderr=(partial_stderr + "\n" + timeout_msg).strip(),
+        )
 
 
 def run_cmd_with_retry(
@@ -65,12 +81,18 @@ def run_cmd_with_retry(
     backoff: float = 2.0,
     timeout: int = 300,
 ) -> subprocess.CompletedProcess:
-    """Run a command with exponential-backoff retry."""
+    """Run a command with exponential-backoff retry.
+
+    Skips retries for rc=124 (timeout) since retrying a timed-out command
+    just multiplies the wall-clock delay without changing the outcome.
+    """
     last_result = None
     current_delay = delay
     for attempt in range(retries):
         result = run_cmd(cmd, capture=True, check=False, timeout=timeout)
         if result.returncode == 0:
+            return result
+        if result.returncode == 124:
             return result
         last_result = result
         if attempt < retries - 1:
