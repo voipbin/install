@@ -39,6 +39,7 @@ def run_cmd(
     capture: bool = True,
     check: bool = False,
     timeout: int = 300,
+    cwd: Optional[Path] = None,
 ) -> subprocess.CompletedProcess:
     """Run a command and return the CompletedProcess result.
 
@@ -61,6 +62,7 @@ def run_cmd(
             text=True,
             check=check,
             timeout=timeout,
+            cwd=cwd,
         )
     except subprocess.TimeoutExpired as exc:
         partial_stdout = exc.stdout if isinstance(exc.stdout, str) else ""

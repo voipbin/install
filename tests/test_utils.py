@@ -184,6 +184,12 @@ class TestRunCmd:
         assert result.returncode == 124
         assert "timed out after 1s" in result.stderr
 
+    def test_accepts_cwd(self):
+        from pathlib import Path
+        result = run_cmd(["pwd"], cwd=Path("/tmp"))
+        assert result.returncode == 0
+        assert "/tmp" in result.stdout
+
 
 class TestRunCmdWithRetry:
     @patch("scripts.utils.run_cmd")
