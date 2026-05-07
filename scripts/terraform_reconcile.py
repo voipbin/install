@@ -7,8 +7,11 @@ before terraform apply runs, making deployments resumable without 409 errors.
 from pathlib import Path
 from typing import Any
 
+from rich.table import Table
+
 from scripts.config import InstallerConfig
-from scripts.terraform import TERRAFORM_DIR
+from scripts.display import confirm, console, print_error, print_step, print_success, print_warning
+from scripts.terraform import TERRAFORM_DIR, terraform_state_list
 from scripts.utils import _validate_cmd_arg, run_cmd
 
 
@@ -307,3 +310,80 @@ def build_registry(config: InstallerConfig) -> list[dict[str, Any]]:
     })
 
     return entries
+
+
+def reconcile(config: InstallerConfig) -> bool:
+    """Detect GCP resources missing from Terraform state and import them.
+
+    Returns True if the pipeline may proceed (no conflicts, or all imports
+    succeeded). Returns False if the user declined or any import failed.
+    """
+    project_id = config.get("gcp_project_id")
+    if not project_id:
+        print_error("gcp_project_id is not configured — cannot run reconcile")
+        return False
+    registry = build_registry(config)
+    in_state = terraform_state_list(config)
+
+    # Filter to resources not yet in state
+    candidates = [e for e in registry if e["tf_address"] not in in_state]
+    if not candidates:
+        return True
+
+    # Check which candidates exist in GCP
+    conflicts: list[dict] = []
+    warned_check_failures: list[str] = []
+
+    for entry in candidates:
+        exists, check_ok = check_exists_in_gcp(entry["gcloud_check"])
+        if not check_ok:
+            warned_check_failures.append(entry["tf_address"])
+        elif exists:
+            conflicts.append(entry)
+
+    for addr in warned_check_failures:
+        print_warning(f"Could not verify {addr} (permission or API error) — skipping")
+
+    if not conflicts:
+        return True
+
+    # Display conflict table
+    table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
+    table.add_column("#",                style="dim", width=4)
+    table.add_column("Terraform Address",              min_width=45)
+    table.add_column("Description",                    min_width=30)
+    print_warning(f"{len(conflicts)} resources exist in GCP but are missing from Terraform state")
+    console.print()
+    for i, entry in enumerate(conflicts, 1):
+        table.add_row(str(i), entry["tf_address"], entry["description"])
+    console.print(table)
+    console.print()
+
+    if not confirm("Import all into Terraform state and continue?", default=True):
+        print_step("Pipeline halted. Re-run [bold]voipbin-install apply[/bold] after resolving conflicts manually.")
+        return False
+
+    # Import each conflict
+    successes, failures = [], []
+    for entry in conflicts:
+        print_step(f"↺ Importing [dim]{entry['tf_address']}[/dim]...")
+        ok, err = import_resource(entry["tf_address"], entry["import_id"], project_id)
+        if ok:
+            print_success(f"Imported {entry['tf_address']}")
+            successes.append(entry)
+        else:
+            print_error(f"Import failed: {err}")
+            failures.append((entry, err))
+
+    console.print()
+    print_step(f"Summary: {len(successes)} imported, {len(failures)} failed")
+
+    if failures:
+        print_error("Import failed for:")
+        for entry, err in failures:
+            tf_addr = entry["tf_address"]
+            import_id = entry["import_id"]
+            console.print(f"    [dim]Run manually:[/dim] terraform import -var project_id={project_id} {tf_addr} {import_id}")
+        return False
+
+    return True

@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.config import InstallerConfig  # noqa: E402
 from scripts.terraform import TERRAFORM_DIR  # noqa: E402
-from scripts.terraform_reconcile import build_registry, check_exists_in_gcp, import_resource  # noqa: E402
+from scripts.terraform_reconcile import build_registry, check_exists_in_gcp, import_resource, reconcile  # noqa: E402
 
 
 class TestCheckExistsInGcp:
@@ -249,3 +249,69 @@ class TestBuildRegistryAllResources:
         entry = next(e for e in entries if e["tf_address"] == "google_sql_user.voipbin")
         # Format must be {project}/{instance}/{name}
         assert entry["import_id"] == "proj-abc/voipbin-mysql/voipbin"
+
+
+class TestReconcile:
+    def _make_config(self):
+        cfg = InstallerConfig()
+        cfg.set_many({
+            "gcp_project_id": "proj",
+            "region": "us-central1",
+            "zone": "us-central1-a",
+            "kamailio_count": 1,
+            "rtpengine_count": 1,
+        })
+        return cfg
+
+    def test_returns_true_when_no_conflicts(self, monkeypatch):
+        monkeypatch.setattr("scripts.terraform_reconcile.terraform_state_list", lambda cfg: set())
+        monkeypatch.setattr("scripts.terraform_reconcile.check_exists_in_gcp", lambda cmd: (False, True))
+        assert reconcile(self._make_config()) is True
+
+    def test_returns_true_when_all_in_state(self, monkeypatch):
+        cfg = self._make_config()
+        all_addresses = {e["tf_address"] for e in build_registry(cfg)}
+        monkeypatch.setattr("scripts.terraform_reconcile.terraform_state_list", lambda c: all_addresses)
+        call_count = {"n": 0}
+        def fake_check(cmd):
+            call_count["n"] += 1
+            return (False, True)
+        monkeypatch.setattr("scripts.terraform_reconcile.check_exists_in_gcp", fake_check)
+        result = reconcile(cfg)
+        assert result is True
+        assert call_count["n"] == 0
+
+    def test_skips_resources_already_in_state(self, monkeypatch):
+        monkeypatch.setattr(
+            "scripts.terraform_reconcile.terraform_state_list",
+            lambda cfg: {"google_service_account.sa_cloudsql_proxy"},
+        )
+        checked = []
+        def fake_check(cmd):
+            checked.append(cmd)
+            return (False, True)
+        monkeypatch.setattr("scripts.terraform_reconcile.check_exists_in_gcp", fake_check)
+        monkeypatch.setattr("scripts.terraform_reconcile.confirm", lambda msg, default=True: False)
+        reconcile(self._make_config())
+        checked_for_sa = any("sa-voipbin-cloudsql-proxy" in str(c) for c in checked)
+        assert not checked_for_sa, "Should not check resources already in state"
+
+    def test_returns_false_when_user_declines(self, monkeypatch):
+        monkeypatch.setattr("scripts.terraform_reconcile.terraform_state_list", lambda cfg: set())
+        monkeypatch.setattr("scripts.terraform_reconcile.check_exists_in_gcp", lambda cmd: (True, True))
+        monkeypatch.setattr("scripts.terraform_reconcile.confirm", lambda msg, default=True: False)
+        assert reconcile(self._make_config()) is False
+
+    def test_returns_false_when_import_fails(self, monkeypatch):
+        monkeypatch.setattr("scripts.terraform_reconcile.terraform_state_list", lambda cfg: set())
+        monkeypatch.setattr("scripts.terraform_reconcile.check_exists_in_gcp", lambda cmd: (True, True))
+        monkeypatch.setattr("scripts.terraform_reconcile.confirm", lambda msg, default=True: True)
+        monkeypatch.setattr("scripts.terraform_reconcile.import_resource", lambda *a, **kw: (False, "import error"))
+        assert reconcile(self._make_config()) is False
+
+    def test_returns_true_when_all_imports_succeed(self, monkeypatch):
+        monkeypatch.setattr("scripts.terraform_reconcile.terraform_state_list", lambda cfg: set())
+        monkeypatch.setattr("scripts.terraform_reconcile.check_exists_in_gcp", lambda cmd: (True, True))
+        monkeypatch.setattr("scripts.terraform_reconcile.confirm", lambda msg, default=True: True)
+        monkeypatch.setattr("scripts.terraform_reconcile.import_resource", lambda *a, **kw: (True, ""))
+        assert reconcile(self._make_config()) is True
