@@ -20,7 +20,7 @@ resource "google_sql_database_instance" "voipbin" {
 
     ip_configuration {
       ipv4_enabled = true
-      require_ssl  = true
+      ssl_mode = "ENCRYPTED_ONLY"
     }
 
     backup_configuration {

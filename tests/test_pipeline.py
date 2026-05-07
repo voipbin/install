@@ -99,7 +99,7 @@ class TestCheckpointSaveLoad:
 
 class TestStageOrdering:
     def test_apply_stages_order(self):
-        expected = ("terraform_init", "terraform_apply", "ansible_run", "k8s_apply")
+        expected = ("terraform_init", "terraform_reconcile", "terraform_apply", "ansible_run", "k8s_apply")
         assert APPLY_STAGES == expected
 
     def test_all_stages_have_runners(self):
