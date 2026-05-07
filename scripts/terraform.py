@@ -120,3 +120,12 @@ def terraform_resource_count(config: InstallerConfig) -> int:
         return -1
     lines = [line for line in result.stdout.strip().splitlines() if line.strip()]
     return len(lines)
+
+
+def terraform_state_list(config: InstallerConfig) -> set[str]:
+    """Return all resource addresses currently in Terraform state."""
+    cmd = ["terraform", f"-chdir={TERRAFORM_DIR}", "state", "list"]
+    result = run_cmd(cmd, capture=True, timeout=60)
+    if result.returncode != 0:
+        return set()
+    return {line for line in result.stdout.splitlines() if line.strip()}

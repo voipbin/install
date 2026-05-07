@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.config import InstallerConfig
-from scripts.terraform import TFVARS_FILE, write_tfvars
+from scripts.terraform import TFVARS_FILE, terraform_state_list, write_tfvars
 
 
 def _make_config(tmp_path: Path) -> InstallerConfig:
@@ -149,3 +149,43 @@ class TestWriteTfvars:
 
         mode = tfvars_path.stat().st_mode & 0o777
         assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
+
+
+class TestRunStateList:
+    def test_returns_empty_set_when_state_list_fails(self, monkeypatch):
+        import subprocess
+        monkeypatch.setattr(
+            "scripts.terraform.run_cmd",
+            lambda *a, **kw: subprocess.CompletedProcess([], 1, stdout="", stderr="error"),
+        )
+        result = terraform_state_list(InstallerConfig())
+        assert result == set()
+
+    def test_returns_set_of_addresses(self, monkeypatch):
+        import subprocess
+        output = "google_compute_network.voipbin\ngoogle_service_account.sa_kamailio\n"
+        monkeypatch.setattr(
+            "scripts.terraform.run_cmd",
+            lambda *a, **kw: subprocess.CompletedProcess([], 0, stdout=output, stderr=""),
+        )
+        result = terraform_state_list(InstallerConfig())
+        assert result == {"google_compute_network.voipbin", "google_service_account.sa_kamailio"}
+
+    def test_handles_empty_state(self, monkeypatch):
+        import subprocess
+        monkeypatch.setattr(
+            "scripts.terraform.run_cmd",
+            lambda *a, **kw: subprocess.CompletedProcess([], 0, stdout="", stderr=""),
+        )
+        result = terraform_state_list(InstallerConfig())
+        assert result == set()
+
+    def test_ignores_whitespace_only_lines(self, monkeypatch):
+        import subprocess
+        output = "google_compute_network.voipbin\n   \ngoogle_service_account.sa_kamailio\n"
+        monkeypatch.setattr(
+            "scripts.terraform.run_cmd",
+            lambda *a, **kw: subprocess.CompletedProcess([], 0, stdout=output, stderr=""),
+        )
+        result = terraform_state_list(InstallerConfig())
+        assert result == {"google_compute_network.voipbin", "google_service_account.sa_kamailio"}
