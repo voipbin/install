@@ -69,8 +69,8 @@ def build_registry(config: InstallerConfig) -> list[dict[str, Any]]:
     project = config.get("gcp_project_id")
     region = config.get("region")
     zone = config.get("zone")
-    _kamailio_count = config.get("kamailio_count", 1)
-    _rtpengine_count = config.get("rtpengine_count", 1)
+    kamailio_count = config.get("kamailio_count", 1)
+    rtpengine_count = config.get("rtpengine_count", 1)
 
     entries: list[dict[str, Any]] = []
 
@@ -104,6 +104,206 @@ def build_registry(config: InstallerConfig) -> list[dict[str, Any]]:
         "gcloud_check": ["gcloud", "kms", "keys", "describe", "voipbin-sops-key",
                          "--keyring=voipbin-sops", "--location=global", f"--project={project}"],
         "import_id":    f"projects/{project}/locations/global/keyRings/voipbin-sops/cryptoKeys/voipbin-sops-key",
+    })
+
+    # -- Network ---------------------------------------------------------
+    entries.append({
+        "tf_address":   "google_compute_network.voipbin",
+        "description":  "VPC Network",
+        "gcloud_check": ["gcloud", "compute", "networks", "describe", "voipbin-vpc",
+                         f"--project={project}"],
+        "import_id":    f"projects/{project}/global/networks/voipbin-vpc",
+    })
+    entries.append({
+        "tf_address":   "google_compute_subnetwork.voipbin_main",
+        "description":  "VPC Subnetwork",
+        "gcloud_check": ["gcloud", "compute", "networks", "subnets", "describe", "voipbin-main",
+                         f"--region={region}", f"--project={project}"],
+        "import_id":    f"projects/{project}/regions/{region}/subnetworks/voipbin-main",
+    })
+    entries.append({
+        "tf_address":   "google_compute_router.voipbin",
+        "description":  "Cloud Router",
+        "gcloud_check": ["gcloud", "compute", "routers", "describe", "voipbin-router",
+                         f"--region={region}", f"--project={project}"],
+        "import_id":    f"projects/{project}/regions/{region}/routers/voipbin-router",
+    })
+    entries.append({
+        "tf_address":   "google_compute_router_nat.voipbin",
+        "description":  "Cloud NAT",
+        "gcloud_check": ["gcloud", "compute", "routers", "nats", "describe", "voipbin-nat",
+                         "--router=voipbin-router", f"--region={region}", f"--project={project}"],
+        "import_id":    f"{project}/{region}/voipbin-router/voipbin-nat",
+    })
+
+    # -- Firewall rules --------------------------------------------------
+    fw_rules = [
+        ("fw_allow_internal",    "voipbin-fw-allow-internal",    "Firewall: internal"),
+        ("fw_gke_internal",      "voipbin-fw-gke-internal",      "Firewall: GKE internal"),
+        ("fw_healthcheck",       "voipbin-fw-healthcheck",       "Firewall: health check"),
+        ("fw_iap_ssh",           "voipbin-fw-iap-ssh",           "Firewall: IAP SSH"),
+        ("fw_kamailio_sip",      "voipbin-fw-kamailio-sip",      "Firewall: Kamailio SIP"),
+        ("fw_rtpengine_control", "voipbin-fw-rtpengine-control", "Firewall: RTPEngine control"),
+        ("fw_rtpengine_rtp",     "voipbin-fw-rtpengine-rtp",     "Firewall: RTPEngine RTP"),
+        ("fw_vm_to_infra",       "voipbin-fw-vm-to-infra",       "Firewall: VM to infra"),
+    ]
+    for tf_name, gcp_name, desc in fw_rules:
+        entries.append({
+            "tf_address":   f"google_compute_firewall.{tf_name}",
+            "description":  desc,
+            "gcloud_check": ["gcloud", "compute", "firewall-rules", "describe", gcp_name,
+                             f"--project={project}"],
+            "import_id":    f"projects/{project}/global/firewalls/{gcp_name}",
+        })
+
+    # -- Compute addresses -----------------------------------------------
+    for tf_name, gcp_name, desc in [
+        ("nat_ip",               "voipbin-nat-ip",               "NAT Static IP"),
+        ("kamailio_lb_external", "voipbin-kamailio-lb-external", "Kamailio LB IP (ext)"),
+        ("kamailio_lb_internal", "voipbin-kamailio-lb-internal", "Kamailio LB IP (int)"),
+    ]:
+        entries.append({
+            "tf_address":   f"google_compute_address.{tf_name}",
+            "description":  desc,
+            "gcloud_check": ["gcloud", "compute", "addresses", "describe", gcp_name,
+                             f"--region={region}", f"--project={project}"],
+            "import_id":    f"projects/{project}/regions/{region}/addresses/{gcp_name}",
+        })
+    for i in range(rtpengine_count):
+        gcp_name = f"external-ip-rtpengine-voipbin-{zone}-{i}"
+        entries.append({
+            "tf_address":   f"google_compute_address.rtpengine[{i}]",
+            "description":  f"RTPEngine IP [{i}]",
+            "gcloud_check": ["gcloud", "compute", "addresses", "describe", gcp_name,
+                             f"--region={region}", f"--project={project}"],
+            "import_id":    f"projects/{project}/regions/{region}/addresses/{gcp_name}",
+        })
+
+    # -- Health checks ---------------------------------------------------
+    entries.append({
+        "tf_address":   "google_compute_http_health_check.kamailio_external",
+        "description":  "HTTP Health Check (ext)",
+        "gcloud_check": ["gcloud", "compute", "http-health-checks", "describe",
+                         "voipbin-hc-kamailio-external", f"--project={project}"],
+        "import_id":    f"projects/{project}/global/httpHealthChecks/voipbin-hc-kamailio-external",
+    })
+    entries.append({
+        "tf_address":   "google_compute_health_check.kamailio_internal",
+        "description":  "Health Check (int)",
+        "gcloud_check": ["gcloud", "compute", "health-checks", "describe",
+                         "voipbin-hc-kamailio-internal", f"--project={project}"],
+        "import_id":    f"projects/{project}/global/healthChecks/voipbin-hc-kamailio-internal",
+    })
+
+    # -- Load balancer resources -----------------------------------------
+    entries.append({
+        "tf_address":   "google_compute_target_pool.kamailio",
+        "description":  "Target Pool (Kamailio)",
+        "gcloud_check": ["gcloud", "compute", "target-pools", "describe",
+                         "voipbin-pool-kamailio", f"--region={region}", f"--project={project}"],
+        "import_id":    f"{project}/{region}/voipbin-pool-kamailio",
+    })
+    entries.append({
+        "tf_address":   "google_compute_region_backend_service.kamailio_internal",
+        "description":  "Backend Service (internal)",
+        "gcloud_check": ["gcloud", "compute", "backend-services", "describe",
+                         "voipbin-bs-kamailio-internal", f"--region={region}", f"--project={project}"],
+        "import_id":    f"projects/{project}/regions/{region}/backendServices/voipbin-bs-kamailio-internal",
+    })
+    for tf_name, gcp_name, desc in [
+        ("kamailio_internal", "voipbin-kamailio-fwd-internal", "Forwarding Rule (internal)"),
+        ("kamailio_tcp_sip",  "voipbin-kamailio-fwd-tcp-sip",  "Forwarding Rule (TCP SIP)"),
+        ("kamailio_tcp_wss",  "voipbin-kamailio-fwd-tcp-wss",  "Forwarding Rule (TCP WSS)"),
+        ("kamailio_udp_sip",  "voipbin-kamailio-fwd-udp-sip",  "Forwarding Rule (UDP SIP)"),
+    ]:
+        entries.append({
+            "tf_address":   f"google_compute_forwarding_rule.{tf_name}",
+            "description":  desc,
+            "gcloud_check": ["gcloud", "compute", "forwarding-rules", "describe", gcp_name,
+                             f"--region={region}", f"--project={project}"],
+            "import_id":    f"projects/{project}/regions/{region}/forwardingRules/{gcp_name}",
+        })
+
+    # -- Compute instances and instance group ----------------------------
+    entries.append({
+        "tf_address":   "google_compute_instance_group.kamailio",
+        "description":  "Instance Group (Kamailio)",
+        "gcloud_check": ["gcloud", "compute", "instance-groups", "unmanaged", "describe",
+                         f"voipbin-ig-kamailio-{zone}", f"--zone={zone}", f"--project={project}"],
+        "import_id":    f"{zone}/voipbin-ig-kamailio-{zone}",
+    })
+    for i in range(kamailio_count):
+        gcp_name = f"instance-kamailio-voipbin-{zone}-{i}"
+        entries.append({
+            "tf_address":   f"google_compute_instance.kamailio[{i}]",
+            "description":  f"Kamailio VM [{i}]",
+            "gcloud_check": ["gcloud", "compute", "instances", "describe", gcp_name,
+                             f"--zone={zone}", f"--project={project}"],
+            "import_id":    f"{project}/{zone}/{gcp_name}",
+        })
+    for i in range(rtpengine_count):
+        gcp_name = f"instance-rtpengine-voipbin-{zone}-{i}"
+        entries.append({
+            "tf_address":   f"google_compute_instance.rtpengine[{i}]",
+            "description":  f"RTPEngine VM [{i}]",
+            "gcloud_check": ["gcloud", "compute", "instances", "describe", gcp_name,
+                             f"--zone={zone}", f"--project={project}"],
+            "import_id":    f"{project}/{zone}/{gcp_name}",
+        })
+
+    # -- GCS buckets (media first, then state bucket) -------------------
+    entries.append({
+        "tf_address":   "google_storage_bucket.media",
+        "description":  "GCS Media Bucket",
+        "gcloud_check": ["gcloud", "storage", "buckets", "describe",
+                         f"gs://{project}-voipbin-media", f"--project={project}"],
+        "import_id":    f"{project}-voipbin-media",
+    })
+    entries.append({
+        "tf_address":   "google_storage_bucket.terraform_state",
+        "description":  "GCS TF State Bucket",
+        "gcloud_check": ["gcloud", "storage", "buckets", "describe",
+                         f"gs://{project}-voipbin-tf-state", f"--project={project}"],
+        "import_id":    f"{project}-voipbin-tf-state",
+    })
+
+    # -- Cloud SQL (instance first, then database and user) -------------
+    entries.append({
+        "tf_address":   "google_sql_database_instance.voipbin",
+        "description":  "Cloud SQL Instance",
+        "gcloud_check": ["gcloud", "sql", "instances", "describe", "voipbin-mysql",
+                         f"--project={project}"],
+        "import_id":    f"projects/{project}/instances/voipbin-mysql",
+    })
+    entries.append({
+        "tf_address":   "google_sql_database.voipbin",
+        "description":  "Cloud SQL Database",
+        "gcloud_check": ["gcloud", "sql", "databases", "describe", "voipbin",
+                         "--instance=voipbin-mysql", f"--project={project}"],
+        "import_id":    f"projects/{project}/instances/voipbin-mysql/databases/voipbin",
+    })
+    entries.append({
+        "tf_address":   "google_sql_user.voipbin",
+        "description":  "Cloud SQL User",
+        "gcloud_check": ["gcloud", "sql", "users", "list", "--instance=voipbin-mysql",
+                         "--filter=name=voipbin", f"--project={project}"],
+        "import_id":    f"{project}/voipbin-mysql/voipbin",
+    })
+
+    # -- GKE (cluster must come before node pool) -----------------------
+    entries.append({
+        "tf_address":   "google_container_cluster.voipbin",
+        "description":  "GKE Cluster",
+        "gcloud_check": ["gcloud", "container", "clusters", "describe", "voipbin-gke-cluster",
+                         f"--zone={zone}", f"--project={project}"],
+        "import_id":    f"projects/{project}/locations/{zone}/clusters/voipbin-gke-cluster",
+    })
+    entries.append({
+        "tf_address":   "google_container_node_pool.voipbin",
+        "description":  "GKE Node Pool",
+        "gcloud_check": ["gcloud", "container", "node-pools", "describe", "voipbin-node-pool",
+                         "--cluster=voipbin-gke-cluster", f"--zone={zone}", f"--project={project}"],
+        "import_id":    f"projects/{project}/locations/{zone}/clusters/voipbin-gke-cluster/nodePools/voipbin-node-pool",
     })
 
     return entries

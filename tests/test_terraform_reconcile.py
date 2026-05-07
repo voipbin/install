@@ -6,6 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from scripts.config import InstallerConfig  # noqa: E402
 from scripts.terraform import TERRAFORM_DIR  # noqa: E402
 from scripts.terraform_reconcile import build_registry, check_exists_in_gcp, import_resource  # noqa: E402
 
@@ -99,7 +100,6 @@ class TestImportResource:
 
 class TestBuildRegistryServiceAccounts:
     def _make_config(self):
-        from scripts.config import InstallerConfig
         cfg = InstallerConfig()
         cfg.set_many({
             "gcp_project_id": "my-project",
@@ -153,3 +153,99 @@ class TestBuildRegistryServiceAccounts:
         ring_idx = addresses.index("google_kms_key_ring.voipbin_sops")
         key_idx = addresses.index("google_kms_crypto_key.voipbin_sops_key")
         assert ring_idx < key_idx, "KMS key ring must be imported before crypto key"
+
+
+class TestBuildRegistryAllResources:
+    def _make_config(self, kamailio_count=1, rtpengine_count=2):
+        cfg = InstallerConfig()
+        cfg.set_many({
+            "gcp_project_id": "proj-abc",
+            "region": "us-central1",
+            "zone": "us-central1-a",
+            "kamailio_count": kamailio_count,
+            "rtpengine_count": rtpengine_count,
+        })
+        return cfg
+
+    def test_includes_vpc_network(self):
+        addresses = {e["tf_address"] for e in build_registry(self._make_config())}
+        assert "google_compute_network.voipbin" in addresses
+
+    def test_includes_subnetwork(self):
+        addresses = {e["tf_address"] for e in build_registry(self._make_config())}
+        assert "google_compute_subnetwork.voipbin_main" in addresses
+
+    def test_includes_all_eight_firewall_rules(self):
+        addresses = {e["tf_address"] for e in build_registry(self._make_config())}
+        fw_rules = {"fw_allow_internal", "fw_gke_internal", "fw_healthcheck",
+                    "fw_iap_ssh", "fw_kamailio_sip", "fw_rtpengine_control",
+                    "fw_rtpengine_rtp", "fw_vm_to_infra"}
+        for rule in fw_rules:
+            assert f"google_compute_firewall.{rule}" in addresses, f"Missing firewall rule: {rule}"
+
+    def test_includes_nat_ip_and_lb_addresses(self):
+        addresses = {e["tf_address"] for e in build_registry(self._make_config())}
+        assert "google_compute_address.nat_ip" in addresses
+        assert "google_compute_address.kamailio_lb_external" in addresses
+        assert "google_compute_address.kamailio_lb_internal" in addresses
+
+    def test_rtpengine_addresses_expand_per_count(self):
+        addresses = {e["tf_address"] for e in build_registry(self._make_config(rtpengine_count=2))}
+        assert "google_compute_address.rtpengine[0]" in addresses
+        assert "google_compute_address.rtpengine[1]" in addresses
+        assert "google_compute_address.rtpengine[2]" not in addresses
+
+    def test_kamailio_instances_expand_per_count(self):
+        addresses = {e["tf_address"] for e in build_registry(self._make_config(kamailio_count=2))}
+        assert "google_compute_instance.kamailio[0]" in addresses
+        assert "google_compute_instance.kamailio[1]" in addresses
+
+    def test_includes_cloud_sql_instance_database_and_user(self):
+        addresses = {e["tf_address"] for e in build_registry(self._make_config())}
+        assert "google_sql_database_instance.voipbin" in addresses
+        assert "google_sql_database.voipbin" in addresses
+        assert "google_sql_user.voipbin" in addresses
+
+    def test_sql_instance_before_database(self):
+        entries = build_registry(self._make_config())
+        addresses = [e["tf_address"] for e in entries]
+        inst_idx = addresses.index("google_sql_database_instance.voipbin")
+        db_idx = addresses.index("google_sql_database.voipbin")
+        assert inst_idx < db_idx
+
+    def test_includes_gke_cluster_and_node_pool(self):
+        addresses = {e["tf_address"] for e in build_registry(self._make_config())}
+        assert "google_container_cluster.voipbin" in addresses
+        assert "google_container_node_pool.voipbin" in addresses
+
+    def test_gke_cluster_before_node_pool(self):
+        entries = build_registry(self._make_config())
+        addresses = [e["tf_address"] for e in entries]
+        cluster_idx = addresses.index("google_container_cluster.voipbin")
+        pool_idx = addresses.index("google_container_node_pool.voipbin")
+        assert cluster_idx < pool_idx
+
+    def test_includes_gcs_buckets(self):
+        addresses = {e["tf_address"] for e in build_registry(self._make_config())}
+        assert "google_storage_bucket.media" in addresses
+        assert "google_storage_bucket.terraform_state" in addresses
+
+    def test_does_not_include_excluded_types(self):
+        addresses = {e["tf_address"] for e in build_registry(self._make_config())}
+        for addr in addresses:
+            assert not addr.startswith("google_project_service."), f"Excluded type found: {addr}"
+            assert not addr.startswith("google_project_iam_member."), f"Excluded type found: {addr}"
+            assert not addr.startswith("random_password."), f"Excluded type found: {addr}"
+            assert not addr.startswith("time_sleep."), f"Excluded type found: {addr}"
+
+    def test_rtpengine_instances_expand_per_count(self):
+        addresses = {e["tf_address"] for e in build_registry(self._make_config(rtpengine_count=2))}
+        assert "google_compute_instance.rtpengine[0]" in addresses
+        assert "google_compute_instance.rtpengine[1]" in addresses
+        assert "google_compute_instance.rtpengine[2]" not in addresses
+
+    def test_sql_user_import_id_has_correct_format(self):
+        entries = build_registry(self._make_config())
+        entry = next(e for e in entries if e["tf_address"] == "google_sql_user.voipbin")
+        # Format must be {project}/{instance}/{name}
+        assert entry["import_id"] == "proj-abc/voipbin-mysql/voipbin"
