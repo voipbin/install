@@ -222,7 +222,7 @@ def create_kms_keyring(
         ["gcloud", "config", "get-value", "account"],
         timeout=10,
     )
-    account = account_result.stdout.strip()
+    account = account_result.stdout.strip() if account_result.returncode == 0 else ""
     # gcloud prints the literal "(unset)" when no account is configured.
     if not account or account == "(unset)":
         print_warning(

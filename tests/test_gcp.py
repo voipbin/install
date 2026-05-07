@@ -226,6 +226,23 @@ class TestCreateKmsKeyring:
     @patch("scripts.gcp.print_warning")
     @patch("scripts.gcp.run_cmd_with_retry")
     @patch("scripts.gcp.run_cmd")
+    def test_skips_iam_binding_when_gcloud_account_command_fails(
+        self, mock_run_cmd, mock_retry, mock_warn
+    ):
+        # First two run_cmd calls (keyring/key create) succeed; the third
+        # (gcloud config get-value account) fails — must not trust its stdout.
+        mock_run_cmd.side_effect = [
+            MagicMock(returncode=0, stdout=""),
+            MagicMock(returncode=0, stdout=""),
+            MagicMock(returncode=1, stdout="garbage stdout on error"),
+        ]
+        create_kms_keyring("my-project")
+        mock_retry.assert_not_called()
+        mock_warn.assert_called_once()
+
+    @patch("scripts.gcp.print_warning")
+    @patch("scripts.gcp.run_cmd_with_retry")
+    @patch("scripts.gcp.run_cmd")
     def test_warns_when_iam_binding_fails(
         self, mock_run_cmd, mock_retry, mock_warn
     ):
