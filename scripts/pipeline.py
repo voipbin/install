@@ -24,13 +24,14 @@ from scripts.terraform import (
     terraform_output,
     terraform_plan,
 )
+from scripts.terraform_reconcile import reconcile as _terraform_reconcile
 from scripts.utils import INSTALLER_DIR
 
 
 STATE_FILE = INSTALLER_DIR / ".voipbin-state.yaml"
 
 # Ordered stages for apply
-APPLY_STAGES = ("terraform_init", "terraform_apply", "ansible_run", "k8s_apply")
+APPLY_STAGES = ("terraform_init", "terraform_reconcile", "terraform_apply", "ansible_run", "k8s_apply")
 # Ordered stages for destroy (reverse)
 DESTROY_STAGES = ("k8s_delete", "ansible_cleanup", "terraform_destroy")
 
@@ -81,6 +82,18 @@ def _run_terraform_init(
     return terraform_init(config)
 
 
+def _run_terraform_reconcile(
+    config: InstallerConfig,
+    _outputs: dict[str, Any],
+    dry_run: bool,
+    auto_approve: bool,
+) -> bool:
+    if dry_run:
+        print_step("[dim]Dry run: skipping Terraform reconcile[/dim]")
+        return True
+    return _terraform_reconcile(config)
+
+
 def _run_terraform_apply(
     config: InstallerConfig,
     _outputs: dict[str, Any],
@@ -126,6 +139,7 @@ STAGE_RUNNERS: dict[
     Callable[[InstallerConfig, dict[str, Any], bool, bool], bool],
 ] = {
     "terraform_init": _run_terraform_init,
+    "terraform_reconcile": _run_terraform_reconcile,
     "terraform_apply": _run_terraform_apply,
     "ansible_run": _run_ansible,
     "k8s_apply": _run_k8s_apply,
@@ -133,6 +147,7 @@ STAGE_RUNNERS: dict[
 
 STAGE_LABELS: dict[str, str] = {
     "terraform_init": "Terraform Init",
+    "terraform_reconcile": "Terraform Reconcile",
     "terraform_apply": "Terraform Apply",
     "ansible_run": "Ansible Playbook",
     "k8s_apply": "Kubernetes Apply",
