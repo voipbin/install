@@ -44,18 +44,34 @@ def run_cmd(
 
     Accepts either a command string (split via shlex) or a list of
     arguments. Never uses shell=True to avoid command injection.
+
+    On timeout, returns a synthetic CompletedProcess with returncode=124
+    (the coreutils timeout convention) and a clear stderr message rather
+    than letting subprocess.TimeoutExpired propagate. Callers that already
+    check result.returncode will handle timeouts uniformly.
     """
     if isinstance(cmd, str):
         args = shlex.split(cmd)
     else:
         args = cmd
-    return subprocess.run(
-        args,
-        capture_output=capture,
-        text=True,
-        check=check,
-        timeout=timeout,
-    )
+    try:
+        return subprocess.run(
+            args,
+            capture_output=capture,
+            text=True,
+            check=check,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        partial_stdout = exc.stdout if isinstance(exc.stdout, str) else ""
+        partial_stderr = exc.stderr if isinstance(exc.stderr, str) else ""
+        timeout_msg = f"Command timed out after {timeout}s: {' '.join(args)}"
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=124,
+            stdout=partial_stdout,
+            stderr=(partial_stderr + "\n" + timeout_msg).strip(),
+        )
 
 
 def run_cmd_with_retry(

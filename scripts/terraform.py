@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from scripts.config import InstallerConfig
-from scripts.display import console, print_error, print_step, print_success
+from scripts.display import print_error, print_step, print_success
 from scripts.utils import INSTALLER_DIR, run_cmd
 
 
@@ -32,9 +32,12 @@ def terraform_init(config: InstallerConfig) -> bool:
         f"-backend-config=prefix=voipbin/{project_id}",
     ]
     print_step("Running: terraform init")
-    result = run_cmd(cmd, capture=True, timeout=300)
+    # Stream terraform's native progress (backend init, provider downloads, etc.)
+    # rather than capturing — matches terraform_apply/destroy and gives the user
+    # real-time feedback during long provider downloads.
+    result = run_cmd(cmd, capture=False, timeout=1800)
     if result.returncode != 0:
-        print_error(f"terraform init failed:\n{result.stderr}")
+        print_error("terraform init failed (see output above)")
         return False
     print_success("Terraform initialized")
     return True
@@ -48,12 +51,11 @@ def terraform_plan(config: InstallerConfig) -> bool:
         f"-var-file={TFVARS_FILE}", "-out=tfplan",
     ]
     print_step("Running: terraform plan")
-    result = run_cmd(cmd, capture=True, timeout=600)
+    # Stream output so the user sees the plan as it's generated.
+    result = run_cmd(cmd, capture=False, timeout=1800)
     if result.returncode != 0:
-        print_error(f"terraform plan failed:\n{result.stderr}")
+        print_error("terraform plan failed (see output above)")
         return False
-    if result.stdout:
-        console.print(result.stdout)
     print_success("Terraform plan generated")
     return True
 

@@ -215,6 +215,40 @@ def create_kms_keyring(
         timeout=30,
     )
 
+    # Grant the current gcloud user encrypt/decrypt on this key so SOPS
+    # (which uses Application Default Credentials) can encrypt secrets.yaml.
+    # Scoped to the key, not the project, for least privilege.
+    account_result = run_cmd(
+        ["gcloud", "config", "get-value", "account"],
+        timeout=10,
+    )
+    account = account_result.stdout.strip()
+    if account:
+        member_type = (
+            "serviceAccount"
+            if account.endswith(".iam.gserviceaccount.com")
+            else "user"
+        )
+        run_cmd_with_retry(
+            ["gcloud", "kms", "keys", "add-iam-policy-binding", key_name,
+             f"--keyring={keyring_name}",
+             f"--location={location}",
+             f"--member={member_type}:{account}",
+             "--role=roles/cloudkms.cryptoKeyEncrypterDecrypter",
+             f"--project={project_id}",
+             "--condition=None",
+             "--quiet"],
+            retries=2,
+            delay=5.0,
+            timeout=30,
+        )
+    else:
+        print_warning(
+            "Could not detect current gcloud account; skipping KMS IAM "
+            "grant. SOPS encryption may fail — grant "
+            "roles/cloudkms.cryptoKeyEncrypterDecrypter manually."
+        )
+
     return (
         f"projects/{project_id}/locations/{location}"
         f"/keyRings/{keyring_name}/cryptoKeys/{key_name}"

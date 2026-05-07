@@ -169,3 +169,9 @@ class TestRunCmd:
         result = run_cmd(["echo", "world"])
         assert result.returncode == 0
         assert "world" in result.stdout
+
+    def test_timeout_returns_124_instead_of_raising(self):
+        """run_cmd should swallow TimeoutExpired and return rc=124."""
+        result = run_cmd(["sleep", "5"], timeout=1)
+        assert result.returncode == 124
+        assert "timed out after 1s" in result.stderr
