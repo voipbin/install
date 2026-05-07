@@ -6,7 +6,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.terraform_reconcile import check_exists_in_gcp  # noqa: E402
+from scripts.terraform import TERRAFORM_DIR  # noqa: E402
+from scripts.terraform_reconcile import check_exists_in_gcp, import_resource  # noqa: E402
 
 
 class TestCheckExistsInGcp:
@@ -45,3 +46,52 @@ class TestCheckExistsInGcp:
         exists, ok = check_exists_in_gcp(["gcloud", "compute", "networks", "describe", "voipbin-vpc"])
         assert exists is False
         assert ok is True
+
+
+class TestImportResource:
+    def test_returns_true_on_success(self, monkeypatch):
+        monkeypatch.setattr(
+            "scripts.terraform_reconcile.run_cmd",
+            lambda *a, **kw: subprocess.CompletedProcess([], 0, stdout="Import successful", stderr=""),
+        )
+        ok, err = import_resource(
+            "google_compute_network.voipbin",
+            "projects/proj/global/networks/voipbin-vpc",
+            "proj-123",
+        )
+        assert ok is True
+        assert err == ""
+
+    def test_returns_false_with_error_on_failure(self, monkeypatch):
+        monkeypatch.setattr(
+            "scripts.terraform_reconcile.run_cmd",
+            lambda *a, **kw: subprocess.CompletedProcess([], 1, stdout="", stderr="Error: resource not importable"),
+        )
+        ok, err = import_resource(
+            "google_compute_network.voipbin",
+            "projects/proj/global/networks/voipbin-vpc",
+            "proj-123",
+        )
+        assert ok is False
+        assert "not importable" in err
+
+    def test_passes_project_id_var_to_command(self, monkeypatch):
+        captured = {}
+        def fake_run(cmd, **kw):
+            captured["cmd"] = cmd
+            return subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        monkeypatch.setattr("scripts.terraform_reconcile.run_cmd", fake_run)
+        import_resource("google_compute_network.voipbin", "some/import/id", "my-project")
+        assert "-var" in captured["cmd"]
+        assert "project_id=my-project" in captured["cmd"]
+
+    def test_passes_no_color_flag(self, monkeypatch):
+        captured = {}
+        def fake_run(cmd, **kw):
+            captured["cmd"] = cmd
+            captured["kw"] = kw
+            return subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        monkeypatch.setattr("scripts.terraform_reconcile.run_cmd", fake_run)
+        import_resource("google_compute_network.voipbin", "some/import/id", "proj")
+        assert "-no-color" in captured["cmd"]
+        assert captured["kw"].get("cwd") == TERRAFORM_DIR
