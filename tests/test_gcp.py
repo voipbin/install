@@ -210,3 +210,42 @@ class TestCreateKmsKeyring:
         create_kms_keyring("my-project")
         mock_retry.assert_not_called()
         mock_warn.assert_called_once()
+
+    @patch("scripts.gcp.print_warning")
+    @patch("scripts.gcp.run_cmd_with_retry")
+    @patch("scripts.gcp.run_cmd")
+    def test_skips_iam_binding_when_account_is_unset_literal(
+        self, mock_run_cmd, mock_retry, mock_warn
+    ):
+        # gcloud prints "(unset)" when no account is configured.
+        mock_run_cmd.return_value = MagicMock(returncode=0, stdout="(unset)\n")
+        create_kms_keyring("my-project")
+        mock_retry.assert_not_called()
+        mock_warn.assert_called_once()
+
+    @patch("scripts.gcp.print_warning")
+    @patch("scripts.gcp.run_cmd_with_retry")
+    @patch("scripts.gcp.run_cmd")
+    def test_warns_when_iam_binding_fails(
+        self, mock_run_cmd, mock_retry, mock_warn
+    ):
+        mock_run_cmd.return_value = MagicMock(
+            returncode=0, stdout="alice@example.com"
+        )
+        mock_retry.return_value = MagicMock(returncode=1, stderr="permission denied")
+        create_kms_keyring("my-project")
+        mock_warn.assert_called_once()
+        warn_msg = mock_warn.call_args[0][0]
+        assert "alice@example.com" in warn_msg
+        assert "manually" in warn_msg.lower() or "manual" in warn_msg.lower()
+
+    @patch("scripts.gcp.run_cmd_with_retry")
+    @patch("scripts.gcp.run_cmd")
+    def test_rejects_account_with_unsafe_characters(self, mock_run_cmd, mock_retry):
+        import pytest
+        mock_run_cmd.return_value = MagicMock(
+            returncode=0, stdout="evil; rm -rf /"
+        )
+        with pytest.raises(ValueError):
+            create_kms_keyring("my-project")
+        mock_retry.assert_not_called()

@@ -81,12 +81,18 @@ def run_cmd_with_retry(
     backoff: float = 2.0,
     timeout: int = 300,
 ) -> subprocess.CompletedProcess:
-    """Run a command with exponential-backoff retry."""
+    """Run a command with exponential-backoff retry.
+
+    Skips retries for rc=124 (timeout) since retrying a timed-out command
+    just multiplies the wall-clock delay without changing the outcome.
+    """
     last_result = None
     current_delay = delay
     for attempt in range(retries):
         result = run_cmd(cmd, capture=True, check=False, timeout=timeout)
         if result.returncode == 0:
+            return result
+        if result.returncode == 124:
             return result
         last_result = result
         if attempt < retries - 1:
