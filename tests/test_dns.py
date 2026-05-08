@@ -54,7 +54,7 @@ class TestSection1:
 class TestSection2:
     def test_contains_domain_key(self):
         out = _capture(print_dns_section2)
-        assert "DOMAIN" in out
+        assert "DOMAIN    example.com" in out
 
     def test_contains_domain_name_trunk(self):
         out = _capture(print_dns_section2)
