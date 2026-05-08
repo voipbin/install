@@ -9,6 +9,14 @@ _EXAMPLE_IP = "1.2.3.4"
 _KAMAILIO_ENV_PATH = "/opt/kamailio-docker/.env"
 
 
+def cmd_dns() -> None:
+    """Print DNS and domain configuration guide."""
+    _display.print_banner()
+    print_dns_section1()
+    print_dns_section2()
+    print_dns_section3()
+
+
 def print_dns_section1() -> None:
     """Section 1: DNS A records guide."""
     _display.print_header("DNS Records")

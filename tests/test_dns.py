@@ -13,6 +13,7 @@ import scripts.display as display_mod
 from scripts.commands.dns import print_dns_section1
 from scripts.commands.dns import print_dns_section2
 from scripts.commands.dns import print_dns_section3
+from scripts.commands.dns import cmd_dns
 
 _ROOT = Path(__file__).resolve().parent.parent
 
@@ -94,3 +95,15 @@ class TestSection3:
     def test_mentions_rtpengine(self):
         out = _capture(print_dns_section3)
         assert "RTPEngine" in out
+
+
+class TestCmdDns:
+    def test_calls_all_three_sections(self):
+        out = _capture(cmd_dns)
+        assert "DNS Records" in out
+        assert "Kubernetes" in out
+        assert "Kamailio VM" in out
+
+    def test_sections_in_order(self):
+        out = _capture(cmd_dns)
+        assert out.index("DNS Records") < out.index("Kubernetes") < out.index("Kamailio VM")
