@@ -1,6 +1,7 @@
 """Tests for scripts/display.py — display helpers and formatting."""
 
 from io import StringIO
+from unittest.mock import patch
 
 from rich.console import Console
 
@@ -17,6 +18,7 @@ from scripts.display import (
     print_success,
     print_warning,
 )
+from scripts.display import print_fix
 
 
 def _capture_output(fn, *args, **kwargs) -> str:
@@ -104,3 +106,22 @@ class TestPrintCostTable:
         output = _capture_output(print_cost_table, "regional")
         assert "GKE" in output
         assert "$73" in output
+
+
+class TestPrintFix:
+    @patch("scripts.display.console")
+    def test_string_input(self, mock_console):
+        print_fix("How to fix", "gcloud auth application-default login")
+        mock_console.print.assert_called_once()
+        panel = mock_console.print.call_args.args[0]
+        assert "How to fix" in str(panel.renderable)
+
+    @patch("scripts.display.console")
+    def test_list_input(self, mock_console):
+        print_fix("Likely causes", ["Billing disabled", "ADC expired"])
+        mock_console.print.assert_called_once()
+
+    @patch("scripts.display.console")
+    def test_single_item_list(self, mock_console):
+        print_fix("Fix", ["run: gcloud auth login"])
+        mock_console.print.assert_called_once()

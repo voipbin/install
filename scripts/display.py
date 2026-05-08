@@ -55,6 +55,18 @@ def print_result_box(lines: list[str], style: str = "green") -> None:
     console.print(Panel(body, border_style=style, expand=False))
 
 
+def print_fix(title: str, lines: list[str] | str) -> None:
+    """Print a 'How to fix' guidance box."""
+    if isinstance(lines, str):
+        lines = [lines]
+    body = "\n".join(f"  {line}" for line in lines)
+    console.print(Panel(
+        f"[bold yellow]{title}[/bold yellow]\n\n{body}",
+        border_style="yellow",
+        expand=False,
+    ))
+
+
 def create_progress() -> Progress:
     return Progress(
         SpinnerColumn(),
