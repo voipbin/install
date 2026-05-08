@@ -292,6 +292,11 @@ class TestCheckBillingTristate:
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="PERMISSION_DENIED")
         assert check_billing_tristate("my-project") == "unknown"
 
+    @patch("scripts.gcp.run_cmd")
+    def test_billing_unknown_on_empty_stdout(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        assert check_billing_tristate("my-project") == "unknown"
+
 
 class TestCheckRequiredApis:
     @patch("scripts.gcp.run_cmd")

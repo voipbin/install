@@ -190,6 +190,8 @@ def create_service_account(
     return sa_email
 
 
+# Deliberate subset of gcp_apis.yaml: only the 3 APIs whose absence will
+# cause Terraform to fail immediately. Full API enablement happens during init.
 REQUIRED_APIS = [
     "compute.googleapis.com",
     "container.googleapis.com",
@@ -209,9 +211,12 @@ def check_billing_tristate(project_id: str) -> Literal["enabled", "disabled", "u
     ])
     if result.returncode != 0:
         return "unknown"
-    if "true" in result.stdout.lower():
+    value = result.stdout.strip().lower()
+    if value == "true":
         return "enabled"
-    return "disabled"
+    if value == "false":
+        return "disabled"
+    return "unknown"
 
 
 def check_required_apis(project_id: str) -> list[str]:

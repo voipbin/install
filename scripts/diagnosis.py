@@ -64,7 +64,7 @@ def offer_adc_setup(auto_accept: bool = False) -> bool:
         print_warning("These credentials allow Terraform to access GCP on your behalf.")
         prompt = "Set up credentials now? [Y/n]"
     else:
-        print_warning("Your Application Default Credentials have expired.")
+        print_warning("Your Application Default Credentials are invalid or expired.")
         prompt = "Refresh credentials now? [Y/n]"
 
     print_warning("A browser window will open for you to sign in to GCP.")
@@ -103,7 +103,9 @@ def run_pre_apply_checks(
     Checks 2-4 are skipped if state is fresh (<24h), not failed, and
     only_stage is None — to avoid redundant GCP calls on resume.
     """
-    from scripts.pipeline import load_state  # lazy to avoid circular import risk
+    # Lazy import: keeps diagnosis.py importable without pipeline.py loaded.
+    # Tests must patch "scripts.pipeline.load_state", not "scripts.diagnosis.load_state".
+    from scripts.pipeline import load_state
 
     project_id = config.get("gcp_project_id")
 
@@ -290,6 +292,9 @@ def _detect_os() -> str:
     return "linux"
 
 
+# can_auto=True only for single, side-effect-free commands (no pipe operators,
+# no shell redirections). Any step using | or >> must set can_auto=False so
+# offer_tool_install displays it as a manual step rather than running it.
 _INSTALL_HINTS: dict[str, dict[str, tuple[list[str], bool]]] = {
     "gcloud": {
         "macos":  (["brew install --cask google-cloud-sdk"], True),
@@ -359,7 +364,7 @@ def offer_tool_install(tool: str) -> bool:
     print_fix(f"Install {tool}", steps)
 
     if not can_auto:
-        print_error(f"Run the commands above in your terminal, then re-run: voipbin-install init")
+        print_error("Run the commands above in your terminal, then re-run: voipbin-install init")
         return False
 
     if not confirm(f"Install {tool} now?", default=True):
