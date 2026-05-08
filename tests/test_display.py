@@ -120,8 +120,15 @@ class TestPrintFix:
     def test_list_input(self, mock_console):
         print_fix("Likely causes", ["Billing disabled", "ADC expired"])
         mock_console.print.assert_called_once()
+        panel = mock_console.print.call_args.args[0]
+        assert "Likely causes" in str(panel.renderable)
+        assert "  Billing disabled" in str(panel.renderable)
+        assert "  ADC expired" in str(panel.renderable)
 
     @patch("scripts.display.console")
     def test_single_item_list(self, mock_console):
         print_fix("Fix", ["run: gcloud auth login"])
         mock_console.print.assert_called_once()
+        panel = mock_console.print.call_args.args[0]
+        assert "Fix" in str(panel.renderable)
+        assert "  run: gcloud auth login" in str(panel.renderable)
