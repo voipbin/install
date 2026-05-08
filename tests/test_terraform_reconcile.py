@@ -353,14 +353,17 @@ class TestReconcile:
 
     def test_mixed_verified_and_unverified_counts(self, monkeypatch):
         # Some resources verified (True, True), some unverified (False, False) —
-        # both should appear in conflicts and both counts should be nonzero
+        # both should appear in conflicts and both warning branches should fire
         monkeypatch.setattr("scripts.terraform_reconcile.terraform_state_list", lambda cfg: set())
         call_n = {"n": 0}
         def alternating_check(cmd):
             call_n["n"] += 1
             return (True, True) if call_n["n"] % 2 == 0 else (False, False)
         monkeypatch.setattr("scripts.terraform_reconcile.check_exists_in_gcp", alternating_check)
+        warnings: list[str] = []
+        monkeypatch.setattr("scripts.terraform_reconcile.print_warning", lambda msg: warnings.append(msg))
         monkeypatch.setattr("scripts.terraform_reconcile.confirm", lambda msg, default=True: False)
         result = reconcile(self._make_config())
-        # user declined — pipeline halts, but both types were collected
         assert result is False
+        assert any("exist in GCP" in w for w in warnings), "verified-count warning must fire"
+        assert any("could not be verified" in w for w in warnings), "unverified-count warning must fire"
