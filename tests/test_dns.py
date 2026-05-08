@@ -4,6 +4,7 @@
 import sys
 from io import StringIO
 from pathlib import Path
+from typing import Any, Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -14,7 +15,7 @@ from scripts.commands.dns import print_dns_section1
 _ROOT = Path(__file__).resolve().parent.parent
 
 
-def _capture(fn, *args, **kwargs) -> str:
+def _capture(fn: "Callable[..., Any]", *args: Any, **kwargs: Any) -> str:
     """Capture Rich output by replacing the shared display console."""
     original = display_mod.console
     buf = StringIO()
