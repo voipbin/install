@@ -120,3 +120,31 @@ class TestCliDns:
             text=True,
         )
         assert result.returncode == 0, result.stderr
+
+
+class TestApplyShowsDnsSection1:
+    """Section 1 of the DNS guide must appear in the apply success output."""
+
+    def test_dns_section1_shown_after_apply_success(self):
+        from unittest.mock import MagicMock, patch
+        from scripts.commands.apply import cmd_apply
+
+        mock_config = MagicMock()
+        mock_config.exists.return_value = True
+        mock_config.validate.return_value = []
+        mock_config.get.side_effect = lambda key, default="": {
+            "gcp_project_id": "my-project",
+            "region": "us-central1",
+            "domain": "example.com",
+        }.get(key, default)
+
+        with patch("scripts.commands.apply.InstallerConfig", return_value=mock_config), \
+             patch("scripts.commands.apply.load_state", return_value={}), \
+             patch("scripts.commands.apply.run_pre_apply_checks", return_value=True), \
+             patch("scripts.commands.apply.run_pipeline", return_value=True):
+            out = _capture(cmd_apply, auto_approve=True)
+
+        assert "DNS Records" in out
+        for sub in ("api", "admin", "talk", "meet", "sip"):
+            assert sub in out
+        assert "voipbin-install verify" in out

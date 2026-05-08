@@ -15,6 +15,7 @@ from scripts.display import (
     print_success,
     print_warning,
 )
+from scripts.commands.dns import print_dns_section1
 from scripts.diagnosis import run_pre_apply_checks
 from scripts.pipeline import APPLY_STAGES, STAGE_LABELS, load_state, run_pipeline
 
@@ -131,9 +132,10 @@ def cmd_apply(
                 f"  Domain:   {domain}",
                 "",
                 "  Next steps:",
-                "    1. Configure DNS records (if manual)",
-                "    2. Verify with: [bold]voipbin-install status[/bold]",
+                "    1. Configure DNS records — see guide below",
+                "    2. Verify with: [bold]voipbin-install verify[/bold]",
             ])
+            print_dns_section1()
     else:
         print_result_box([
             "[red]✗ Deployment failed[/red]",
