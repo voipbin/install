@@ -2,6 +2,7 @@
 
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -118,3 +119,30 @@ class TestStageOrdering:
     def test_initial_stages_contains_all(self):
         stages = _initial_stages_state()
         assert set(stages.keys()) == set(APPLY_STAGES)
+
+
+class TestPipelineDiagnosis:
+    @patch("scripts.pipeline.print_fix")
+    @patch("scripts.pipeline.diagnose_stage_failure", return_value=["hint1"])
+    def test_diagnosis_called_on_failure(self, mock_diag, mock_fix):
+        """After a stage fails, diagnose_stage_failure is called and print_fix renders hints."""
+        from scripts.pipeline import run_pipeline
+        config = MagicMock()
+        config.get.return_value = "my-project"
+        # Make terraform_init fail
+        with patch("scripts.pipeline.STAGE_RUNNERS", {"terraform_init": MagicMock(return_value=False)}), \
+             patch("scripts.pipeline.load_state", return_value={}), \
+             patch("scripts.pipeline.save_state"):
+            run_pipeline(config, only_stage="terraform_init")
+        mock_diag.assert_called_once_with(config, "terraform_init")
+        mock_fix.assert_called_once_with("Likely causes", ["hint1"])
+
+    @patch("scripts.pipeline.diagnose_stage_failure")
+    def test_no_diagnosis_on_success(self, mock_diag):
+        from scripts.pipeline import run_pipeline
+        config = MagicMock()
+        with patch("scripts.pipeline.STAGE_RUNNERS", {"terraform_init": MagicMock(return_value=True)}), \
+             patch("scripts.pipeline.load_state", return_value={}), \
+             patch("scripts.pipeline.save_state"):
+            run_pipeline(config, only_stage="terraform_init")
+        mock_diag.assert_not_called()
