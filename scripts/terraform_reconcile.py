@@ -25,7 +25,8 @@ def check_exists_in_gcp(check_cmd: list[str]) -> tuple[bool, bool]:
     Returns:
         (exists, check_succeeded): exists=True if the resource is present.
         check_succeeded=False means the check could not be completed (e.g.
-        permission error) — callers should warn but not block.
+        permission error) — callers should treat the resource as a potential
+        conflict and include it in the import prompt.
     """
     result = run_cmd(check_cmd, capture=True, timeout=30)
     if result.returncode == 0:
