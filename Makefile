@@ -13,7 +13,6 @@ lint:
 	python3 -m py_compile scripts/display.py
 	python3 -m py_compile scripts/utils.py
 	python3 -m py_compile scripts/commands/init.py
-	python3 -m py_compile scripts/commands/dns.py
 
 test:
 	cd $(dir $(abspath $(lastword $(MAKEFILE_LIST)))) && python3 -m pytest tests/ -v

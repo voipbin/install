@@ -527,6 +527,53 @@ install/
 ```
 
 
+## DNS & Domain Configuration
+
+After `voipbin-install apply` completes, configure DNS and verify your domain settings.
+
+### DNS Records (at your registrar)
+
+VoIPBin requires the following DNS A records. All subdomains point to the same load balancer IP.
+
+| Subdomain | Type | Value |
+|-----------|------|-------|
+| api.example.com | A | 1.2.3.4 |
+| admin.example.com | A | 1.2.3.4 |
+| talk.example.com | A | 1.2.3.4 |
+| meet.example.com | A | 1.2.3.4 |
+| sip.example.com | A | 1.2.3.4 |
+
+Replace `example.com` with your domain and `1.2.3.4` with your load balancer IP.
+
+For **auto DNS mode**: delegate your domain to the GCP nameservers printed after apply completes. GCP then manages the A records.
+
+DNS propagation can take up to 48 hours. Once complete, run `voipbin-install verify`.
+
+### Kubernetes ConfigMap
+
+The following domain value is set in the `voipbin-config` ConfigMap (namespace: `bin-manager`) during deployment:
+
+```
+DOMAIN    example.com
+```
+
+If your backend services also need `DOMAIN_NAME_TRUNK` or `DOMAIN_NAME_EXTENSION`, add them to `k8s/backend/configmap.yaml` before running apply. Audit which services consume these values first.
+
+### Kamailio VM Environment (`/opt/kamailio-docker/.env`)
+
+Kamailio runs on GCE VMs via Docker Compose. The following domain-related env vars are written by the Ansible playbook:
+
+```
+BASE_DOMAIN              example.com
+DOMAIN_NAME_EXTENSION    registrar.example.com
+DOMAIN_NAME_TRUNK        trunk.example.com
+```
+
+RTPEngine has no domain-specific env vars.
+
+To update these after deployment, re-run: `voipbin-install apply`
+
+
 ## Contributing
 
 1. Install development dependencies: `pip install -r requirements.txt`

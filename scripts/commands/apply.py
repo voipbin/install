@@ -3,6 +3,7 @@
 import sys
 from typing import Optional
 
+import scripts.display as _display
 from scripts.config import InstallerConfig
 from scripts.display import (
     console,
@@ -15,7 +16,6 @@ from scripts.display import (
     print_success,
     print_warning,
 )
-from scripts.commands.dns import print_dns_section1
 from scripts.diagnosis import run_pre_apply_checks
 from scripts.pipeline import APPLY_STAGES, STAGE_LABELS, load_state, run_pipeline
 
@@ -135,7 +135,26 @@ def cmd_apply(
                 "    1. Configure DNS records — see guide below",
                 "    2. Verify with: [bold]voipbin-install verify[/bold]",
             ])
-            print_dns_section1()
+            # DNS records guide — shown after successful deployment
+            _subdomains = ["api", "admin", "talk", "meet", "sip"]
+            _example_domain = "example.com"
+            _example_ip = "1.2.3.4"
+            print_header("DNS Records")
+            _display.console.print("  [dim]" + "─" * 50 + "[/dim]")
+            _display.console.print()
+            _display.console.print("  VoIPBin requires the following DNS A records at your registrar.")
+            _display.console.print("  All subdomains point to the same load balancer IP.")
+            _display.console.print()
+            for sub in _subdomains:
+                fqdn = f"{sub}.{_example_domain}"
+                _display.console.print(f"    [bold]{fqdn:<28}[/bold] A    {_example_ip}")
+            _display.console.print()
+            _display.console.print("  For [bold]auto[/bold] DNS mode: delegate your domain to the GCP nameservers")
+            _display.console.print("  printed after apply completes. GCP then manages the A records.")
+            _display.console.print()
+            _display.console.print("  DNS propagation can take up to 48 hours.")
+            _display.console.print("  Once complete, run: [bold]voipbin-install verify[/bold]")
+            _display.console.print()
     else:
         print_result_box([
             "[red]✗ Deployment failed[/red]",
