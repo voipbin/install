@@ -341,3 +341,26 @@ class TestReconcile:
         monkeypatch.setattr("scripts.terraform_reconcile.confirm", lambda msg, default=True: True)
         monkeypatch.setattr("scripts.terraform_reconcile.import_resource", lambda *a, **kw: (True, ""))
         assert reconcile(self._make_config()) is True
+
+    def test_unverifiable_resource_import_failure_returns_false(self, monkeypatch):
+        # If a resource can't be gcloud-verified AND terraform import fails,
+        # reconcile must return False (not silently pass and let apply 409)
+        monkeypatch.setattr("scripts.terraform_reconcile.terraform_state_list", lambda cfg: set())
+        monkeypatch.setattr("scripts.terraform_reconcile.check_exists_in_gcp", lambda cmd: (False, False))
+        monkeypatch.setattr("scripts.terraform_reconcile.confirm", lambda msg, default=True: True)
+        monkeypatch.setattr("scripts.terraform_reconcile.import_resource", lambda *a, **kw: (False, "resource not found"))
+        assert reconcile(self._make_config()) is False
+
+    def test_mixed_verified_and_unverified_counts(self, monkeypatch):
+        # Some resources verified (True, True), some unverified (False, False) —
+        # both should appear in conflicts and both counts should be nonzero
+        monkeypatch.setattr("scripts.terraform_reconcile.terraform_state_list", lambda cfg: set())
+        call_n = {"n": 0}
+        def alternating_check(cmd):
+            call_n["n"] += 1
+            return (True, True) if call_n["n"] % 2 == 0 else (False, False)
+        monkeypatch.setattr("scripts.terraform_reconcile.check_exists_in_gcp", alternating_check)
+        monkeypatch.setattr("scripts.terraform_reconcile.confirm", lambda msg, default=True: False)
+        result = reconcile(self._make_config())
+        # user declined — pipeline halts, but both types were collected
+        assert result is False

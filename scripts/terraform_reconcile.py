@@ -334,6 +334,11 @@ def reconcile(config: InstallerConfig) -> bool:
     # Resources whose gcloud check fails (permission error, API unavailable) are
     # treated as potential conflicts and included in the import prompt — otherwise
     # they silently pass through here and cause 409 errors in terraform apply.
+    # Trade-off: on a fresh install where GCP APIs are not yet enabled, all checks
+    # may fail, causing all registry entries to be offered for import. Those imports
+    # will fail harmlessly (resource not found), reconcile returns False, and the
+    # user must re-run once APIs are enabled. This is preferable to the silent-skip
+    # path which masks real 409 conflicts on resume deployments.
     conflicts: list[dict] = []
 
     for entry in candidates:
@@ -389,7 +394,8 @@ def reconcile(config: InstallerConfig) -> bool:
         for entry, err in failures:
             tf_addr = entry["tf_address"]
             import_id = entry["import_id"]
-            console.print(f"    [dim]Run manually:[/dim] terraform import -var project_id={project_id} {tf_addr} {import_id}")
+            note = " [dim]# unverified — confirm resource exists before importing[/dim]" if entry.get("unverified") else ""
+            console.print(f"    [dim]Run manually:[/dim] terraform import -var project_id={project_id} {tf_addr} {import_id}{note}")
         return False
 
     return True
