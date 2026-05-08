@@ -1,6 +1,7 @@
 """Tests for scripts/preflight.py — version parsers and preflight result logic."""
 
 import json
+from unittest.mock import patch
 
 from scripts.preflight import (
     PreflightResult,
@@ -117,3 +118,18 @@ class TestRunPreflightDisplay:
 
     def test_empty_results_returns_true(self):
         assert run_preflight_display([]) is True
+
+
+class TestRunPreflightDisplayOsHints:
+    @patch("scripts.preflight.get_os_install_hint", return_value=(["pip3 install ansible"], True))
+    @patch("scripts.preflight.print_check")
+    @patch("scripts.preflight.print_error")
+    def test_shows_os_hint_for_missing_tool(self, mock_err, mock_check, mock_hint):
+        from scripts.preflight import PreflightResult, run_preflight_display
+        results = [PreflightResult(
+            tool="ansible", version="", ok=False, required="2.15.0",
+            hint="pip install ansible"
+        )]
+        run_preflight_display(results)
+        call_args = " ".join(str(a) for a in mock_err.call_args_list)
+        assert "pip3 install ansible" in call_args

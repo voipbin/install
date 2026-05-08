@@ -8,9 +8,11 @@ import yaml
 
 from scripts.ansible_runner import ansible_check, ansible_run
 from scripts.config import InstallerConfig
+from scripts.diagnosis import diagnose_stage_failure
 from scripts.display import (
     console,
     print_error,
+    print_fix,
     print_header,
     print_step,
     print_success,
@@ -220,6 +222,11 @@ def run_pipeline(
             state["stages"] = stages
             save_state(state)
             print_error(f"Stage '{label}' failed. Pipeline halted.")
+
+            hints = diagnose_stage_failure(config, stage_name)
+            if hints:
+                print_fix("Likely causes", hints)
+
             print_step("Resume with: [bold]voipbin-install apply[/bold]")
             return False
 

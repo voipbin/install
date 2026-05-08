@@ -5,6 +5,11 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from scripts.diagnosis import (
+    check_application_default_credentials,
+    get_os_install_hint,
+    offer_adc_setup,
+)
 from scripts.display import print_check, print_error, print_header, print_success
 from scripts.utils import run_cmd
 
@@ -166,5 +171,10 @@ def run_preflight_display(results: list[PreflightResult]) -> bool:
         print_check(r.tool, r.version, r.ok, r.required)
         if not r.ok:
             all_ok = False
-            print_error(f"  Install: {r.hint}")
+            steps, can_auto = get_os_install_hint(r.tool)
+            if steps:
+                hint_line = steps[0] if len(steps) == 1 or can_auto else steps[-1]
+            else:
+                hint_line = r.hint
+            print_error(f"  Install: {hint_line}")
     return all_ok

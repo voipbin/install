@@ -44,7 +44,18 @@ def init(reconfigure, config_path, skip_api_enable, skip_quota_check, dry_run):
 @cli.command()
 @click.option("--auto-approve", is_flag=True, help="Skip confirmation prompts")
 @click.option("--dry-run", is_flag=True, help="Show what would be done without making changes")
-@click.option("--stage", type=click.Choice(["terraform_init", "terraform_apply", "ansible_run", "k8s_apply"]), default=None, help="Run only a specific pipeline stage")
+@click.option(
+    "--stage",
+    type=click.Choice([
+        "terraform_init",
+        "terraform_reconcile",
+        "terraform_apply",
+        "ansible_run",
+        "k8s_apply",
+    ]),
+    default=None,
+    help="Run only a specific pipeline stage",
+)
 def apply(auto_approve, dry_run, stage):
     """Deploy VoIPBin infrastructure and services."""
     cmd_apply(auto_approve=auto_approve, dry_run=dry_run, stage=stage)

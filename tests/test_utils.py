@@ -153,6 +153,10 @@ class TestValidateCmdArg:
         with pytest.raises(ValueError, match="Unsafe characters"):
             _validate_cmd_arg("proj && echo pwned", "project_id")
 
+    def test_validate_cmd_arg_allows_indexed_address(self):
+        # Currently crashes on google_compute_instance.kamailio[0]
+        _validate_cmd_arg("google_compute_instance.kamailio[0]", "resource")  # must not raise
+
 
 class TestRunCmd:
     def test_no_shell_true(self):
