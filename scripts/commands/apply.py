@@ -15,6 +15,7 @@ from scripts.display import (
     print_success,
     print_warning,
 )
+from scripts.diagnosis import run_pre_apply_checks
 from scripts.pipeline import APPLY_STAGES, STAGE_LABELS, load_state, run_pipeline
 
 
@@ -95,6 +96,12 @@ def cmd_apply(
         if not confirm("Proceed with deployment?", default=True):
             console.print("  Cancelled.")
             return
+
+    # Pre-apply health checks (after confirmation — checks take ~10s)
+    if not dry_run:
+        if not run_pre_apply_checks(config, auto_approve=auto_approve, only_stage=stage):
+            print_error("Pre-apply checks failed. Fix the issues above and re-run.")
+            sys.exit(1)
 
     # Run pipeline
     ok = run_pipeline(
