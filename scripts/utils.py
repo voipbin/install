@@ -30,7 +30,7 @@ def _validate_cmd_arg(value: str, name: str) -> None:
     if not _SAFE_ID_RE.match(value):
         raise ValueError(
             f"Unsafe characters in {name}: {value!r}. "
-            "Only alphanumerics, dots, dashes, underscores, colons, slashes, and @ are allowed."
+            "Only alphanumerics, dots, dashes, underscores, colons, slashes, @, and square brackets are allowed."
         )
 
 
