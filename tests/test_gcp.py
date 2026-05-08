@@ -318,10 +318,11 @@ class TestCheckRequiredApis:
 
 
 class TestCreateServiceAccount:
+    @patch("scripts.gcp.print_warning")
     @patch("scripts.gcp._load_yaml_data")
     @patch("scripts.gcp.run_cmd_with_retry")
     @patch("scripts.gcp.run_cmd")
-    def test_already_exists_is_silent(self, mock_run, mock_retry, mock_load):
+    def test_already_exists_is_silent(self, mock_run, mock_retry, mock_load, mock_warn):
         mock_run.return_value = MagicMock(
             returncode=1, stderr="ERROR: (gcloud.iam.service-accounts.create) Resource in projects [p] already exists",
             stdout=""
@@ -329,6 +330,7 @@ class TestCreateServiceAccount:
         mock_load.return_value = {"roles": []}
         email = create_service_account("my-project")
         assert email == "voipbin-installer@my-project.iam.gserviceaccount.com"
+        mock_warn.assert_not_called()
 
     @patch("scripts.gcp._load_yaml_data")
     @patch("scripts.gcp.run_cmd_with_retry")

@@ -198,6 +198,11 @@ REQUIRED_APIS = [
 
 
 def check_billing_tristate(project_id: str) -> Literal["enabled", "disabled", "unknown"]:
+    """Three-way billing check distinguishing disabled from probe failure.
+
+    Returns "unknown" when the gcloud command fails (auth error, network, etc.)
+    so callers skip the billing hint rather than showing a false positive.
+    """
     result = run_cmd([
         "gcloud", "billing", "projects", "describe", project_id,
         "--format=value(billingEnabled)",
@@ -210,6 +215,11 @@ def check_billing_tristate(project_id: str) -> Literal["enabled", "disabled", "u
 
 
 def check_required_apis(project_id: str) -> list[str]:
+    """Return list of REQUIRED_APIS not yet enabled in the project.
+
+    Returns an empty list if all required APIs are enabled or if the probe
+    fails — an empty result on failure avoids false 'enable API' hints.
+    """
     result = run_cmd([
         "gcloud", "services", "list",
         "--enabled",
