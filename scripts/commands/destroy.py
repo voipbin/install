@@ -3,6 +3,7 @@
 import sys
 
 from scripts.config import InstallerConfig
+from scripts.diagnosis import check_application_default_credentials, offer_adc_setup
 from scripts.display import (
     console,
     confirm,
@@ -29,6 +30,15 @@ def cmd_destroy(auto_approve: bool = False) -> None:
         sys.exit(1)
 
     config.load()
+
+    # ADC check — terraform destroy requires valid ADC credentials
+    adc_ok, _ = check_application_default_credentials()
+    if not adc_ok:
+        refreshed = offer_adc_setup(auto_accept=auto_approve)
+        if not refreshed:
+            print_error("Terraform destroy requires Application Default Credentials.")
+            sys.exit(1)
+
     project_id = config.get("gcp_project_id", "unknown")
     region = config.get("region", "unknown")
 
