@@ -111,8 +111,7 @@ class TestCmdDns:
 
 class TestCliDns:
     def test_exit_zero(self) -> None:
-        import subprocess
-        import sys
+        import subprocess, sys
         result = subprocess.run(
             [sys.executable, "-m", "scripts.cli", "dns"],
             cwd=str(_ROOT),
@@ -120,6 +119,8 @@ class TestCliDns:
             text=True,
         )
         assert result.returncode == 0, result.stderr
+        assert "DNS Records" in result.stdout
+        assert "example.com" in result.stdout
 
 
 class TestApplyShowsDnsSection1:
