@@ -263,10 +263,41 @@ class TestReconcile:
         })
         return cfg
 
+    def test_returns_false_when_project_id_missing(self, monkeypatch):
+        cfg = InstallerConfig()
+        cfg.set_many({"region": "us-central1", "zone": "us-central1-a", "kamailio_count": 1, "rtpengine_count": 1})
+        assert reconcile(cfg) is False
+
     def test_returns_true_when_no_conflicts(self, monkeypatch):
         monkeypatch.setattr("scripts.terraform_reconcile.terraform_state_list", lambda cfg: set())
         monkeypatch.setattr("scripts.terraform_reconcile.check_exists_in_gcp", lambda cmd: (False, True))
         assert reconcile(self._make_config()) is True
+
+    def test_unverifiable_resources_are_included_in_import_prompt(self, monkeypatch):
+        # check_ok=False must NOT silently skip — it must be offered for import
+        # to prevent 409 errors when gcloud checks fail (permission/API error)
+        monkeypatch.setattr("scripts.terraform_reconcile.terraform_state_list", lambda cfg: set())
+        monkeypatch.setattr("scripts.terraform_reconcile.check_exists_in_gcp", lambda cmd: (False, False))
+        confirmed = {"called": False}
+        def fake_confirm(msg, default=True):
+            confirmed["called"] = True
+            return False
+        monkeypatch.setattr("scripts.terraform_reconcile.confirm", fake_confirm)
+        reconcile(self._make_config())
+        assert confirmed["called"], "confirm() must be called even when all checks fail"
+
+    def test_unverifiable_resources_are_imported_when_user_approves(self, monkeypatch):
+        monkeypatch.setattr("scripts.terraform_reconcile.terraform_state_list", lambda cfg: set())
+        monkeypatch.setattr("scripts.terraform_reconcile.check_exists_in_gcp", lambda cmd: (False, False))
+        monkeypatch.setattr("scripts.terraform_reconcile.confirm", lambda msg, default=True: True)
+        import_calls = []
+        def fake_import(tf_address, import_id, project_id):
+            import_calls.append(tf_address)
+            return True, ""
+        monkeypatch.setattr("scripts.terraform_reconcile.import_resource", fake_import)
+        result = reconcile(self._make_config())
+        assert result is True
+        assert len(import_calls) > 0, "import_resource must be called for unverifiable resources"
 
     def test_returns_true_when_all_in_state(self, monkeypatch):
         cfg = self._make_config()
@@ -315,3 +346,29 @@ class TestReconcile:
         monkeypatch.setattr("scripts.terraform_reconcile.confirm", lambda msg, default=True: True)
         monkeypatch.setattr("scripts.terraform_reconcile.import_resource", lambda *a, **kw: (True, ""))
         assert reconcile(self._make_config()) is True
+
+    def test_unverifiable_resource_import_failure_returns_false(self, monkeypatch):
+        # If a resource can't be gcloud-verified AND terraform import fails,
+        # reconcile must return False (not silently pass and let apply 409)
+        monkeypatch.setattr("scripts.terraform_reconcile.terraform_state_list", lambda cfg: set())
+        monkeypatch.setattr("scripts.terraform_reconcile.check_exists_in_gcp", lambda cmd: (False, False))
+        monkeypatch.setattr("scripts.terraform_reconcile.confirm", lambda msg, default=True: True)
+        monkeypatch.setattr("scripts.terraform_reconcile.import_resource", lambda *a, **kw: (False, "resource not found"))
+        assert reconcile(self._make_config()) is False
+
+    def test_mixed_verified_and_unverified_counts(self, monkeypatch):
+        # Some resources verified (True, True), some unverified (False, False) —
+        # both should appear in conflicts and both warning branches should fire
+        monkeypatch.setattr("scripts.terraform_reconcile.terraform_state_list", lambda cfg: set())
+        call_n = {"n": 0}
+        def alternating_check(cmd):
+            call_n["n"] += 1
+            return (True, True) if call_n["n"] % 2 == 0 else (False, False)
+        monkeypatch.setattr("scripts.terraform_reconcile.check_exists_in_gcp", alternating_check)
+        warnings: list[str] = []
+        monkeypatch.setattr("scripts.terraform_reconcile.print_warning", lambda msg: warnings.append(msg))
+        monkeypatch.setattr("scripts.terraform_reconcile.confirm", lambda msg, default=True: False)
+        result = reconcile(self._make_config())
+        assert result is False
+        assert any("exist in GCP" in w for w in warnings), "verified-count warning must fire"
+        assert any("could not be verified" in w for w in warnings), "unverified-count warning must fire"
