@@ -263,6 +263,11 @@ class TestReconcile:
         })
         return cfg
 
+    def test_returns_false_when_project_id_missing(self, monkeypatch):
+        cfg = InstallerConfig()
+        cfg.set_many({"region": "us-central1", "zone": "us-central1-a", "kamailio_count": 1, "rtpengine_count": 1})
+        assert reconcile(cfg) is False
+
     def test_returns_true_when_no_conflicts(self, monkeypatch):
         monkeypatch.setattr("scripts.terraform_reconcile.terraform_state_list", lambda cfg: set())
         monkeypatch.setattr("scripts.terraform_reconcile.check_exists_in_gcp", lambda cmd: (False, True))
