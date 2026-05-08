@@ -13,6 +13,7 @@ lint:
 	python3 -m py_compile scripts/display.py
 	python3 -m py_compile scripts/utils.py
 	python3 -m py_compile scripts/commands/init.py
+	python3 -m py_compile scripts/commands/dns.py
 
 test:
 	python3 -m pytest tests/ -v
