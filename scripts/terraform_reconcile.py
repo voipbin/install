@@ -25,7 +25,8 @@ def check_exists_in_gcp(check_cmd: list[str]) -> tuple[bool, bool]:
     Returns:
         (exists, check_succeeded): exists=True if the resource is present.
         check_succeeded=False means the check could not be completed (e.g.
-        permission error) — callers should warn but not block.
+        permission error) — callers should treat the resource as a potential
+        conflict and include it in the import prompt.
     """
     result = run_cmd(check_cmd, capture=True, timeout=30)
     if result.returncode == 0:
@@ -330,32 +331,43 @@ def reconcile(config: InstallerConfig) -> bool:
     if not candidates:
         return True
 
-    # Check which candidates exist in GCP
+    # Check which candidates exist in GCP.
+    # Resources whose gcloud check fails (permission error, API unavailable) are
+    # treated as potential conflicts and included in the import prompt — otherwise
+    # they silently pass through here and cause 409 errors in terraform apply.
+    # Trade-off: on a fresh install where GCP APIs are not yet enabled, all checks
+    # may fail, causing all registry entries to be offered for import. Those imports
+    # will fail harmlessly (resource not found), reconcile returns False, and the
+    # user must re-run once APIs are enabled. This is preferable to the silent-skip
+    # path which masks real 409 conflicts on resume deployments.
     conflicts: list[dict] = []
-    warned_check_failures: list[str] = []
 
     for entry in candidates:
         exists, check_ok = check_exists_in_gcp(entry["gcloud_check"])
         if not check_ok:
-            warned_check_failures.append(entry["tf_address"])
+            conflicts.append({**entry, "unverified": True})
         elif exists:
             conflicts.append(entry)
-
-    for addr in warned_check_failures:
-        print_warning(f"Could not verify {addr} (permission or API error) — skipping")
 
     if not conflicts:
         return True
 
     # Display conflict table
+    verified_count = sum(1 for e in conflicts if not e.get("unverified"))
+    unverified_count = len(conflicts) - verified_count
+    if verified_count:
+        print_warning(f"{verified_count} resources exist in GCP but are missing from Terraform state")
+    if unverified_count:
+        print_warning(f"{unverified_count} resources could not be verified — will attempt import")
     table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
     table.add_column("#",                style="dim", width=4)
     table.add_column("Terraform Address",              min_width=45)
     table.add_column("Description",                    min_width=30)
-    print_warning(f"{len(conflicts)} resources exist in GCP but are missing from Terraform state")
+    table.add_column("Status",                         width=14)
     console.print()
     for i, entry in enumerate(conflicts, 1):
-        table.add_row(str(i), entry["tf_address"], entry["description"])
+        status = "[yellow]unverified[/yellow]" if entry.get("unverified") else "[green]exists[/green]"
+        table.add_row(str(i), entry["tf_address"], entry["description"], status)
     console.print(table)
     console.print()
 
@@ -383,7 +395,8 @@ def reconcile(config: InstallerConfig) -> bool:
         for entry, err in failures:
             tf_addr = entry["tf_address"]
             import_id = entry["import_id"]
-            console.print(f"    [dim]Run manually:[/dim] terraform import -var project_id={project_id} {tf_addr} {import_id}")
+            note = " [dim]# unverified — confirm resource exists before importing[/dim]" if entry.get("unverified") else ""
+            console.print(f"    [dim]Run manually:[/dim] terraform import -var project_id={project_id} {tf_addr} {import_id}{note}")
         return False
 
     return True
