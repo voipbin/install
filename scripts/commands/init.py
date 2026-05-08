@@ -33,8 +33,19 @@ from scripts.preflight import (
     check_prerequisites,
     run_preflight_display,
 )
+from scripts.diagnosis import (
+    check_application_default_credentials,
+    get_os_install_hint,
+    offer_adc_setup,
+    offer_tool_install,
+)
 from scripts.secretmgr import generate_and_encrypt, write_sops_config
 from scripts.wizard import run_wizard
+
+
+def _can_auto_run(tool: str) -> bool:
+    _, can_auto = get_os_install_hint(tool)
+    return can_auto
 
 
 def _count_gcp_apis() -> int:
@@ -71,8 +82,20 @@ def cmd_init(
     results = check_prerequisites()
     all_ok = run_preflight_display(results)
     if not all_ok:
-        print_error("Some prerequisites are missing. Install them and re-run.")
-        sys.exit(1)
+        # Pass 1: auto-installable tools — attempt each in sequence
+        for r in results:
+            if not r.ok and _can_auto_run(r.tool):
+                installed = offer_tool_install(r.tool)
+                if not installed:
+                    sys.exit(1)
+
+        # Pass 2: display-only tools — show ALL hints before exiting
+        display_only_missing = [r for r in results if not r.ok and not _can_auto_run(r.tool)]
+        if display_only_missing:
+            for r in display_only_missing:
+                offer_tool_install(r.tool)  # always returns False; prints print_fix block
+            sys.exit(1)
+        # All tools now installed — continue
 
     # --- Step 2: GCP auth ---
     print_header("Checking GCP credentials...")
@@ -81,6 +104,14 @@ def cmd_init(
         print_error("Not authenticated with gcloud. Run: gcloud auth login")
         sys.exit(1)
     print_success(f"Authenticated as {account}")
+
+    # Check ADC (separate from gcloud user auth)
+    adc_ok, _ = check_application_default_credentials()
+    if not adc_ok:
+        refreshed = offer_adc_setup()
+        if not refreshed:
+            sys.exit(1)
+    print_success("Application Default Credentials valid")
 
     # --- Step 3: Wizard (or load from file) ---
     if config_path:
