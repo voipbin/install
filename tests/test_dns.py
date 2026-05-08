@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from rich.console import Console
 import scripts.display as display_mod
 from scripts.commands.dns import print_dns_section1
+from scripts.commands.dns import print_dns_section2
 
 _ROOT = Path(__file__).resolve().parent.parent
 
@@ -48,3 +49,25 @@ class TestSection1:
     def test_mentions_verify_command(self):
         out = _capture(print_dns_section1)
         assert "voipbin-install verify" in out
+
+
+class TestSection2:
+    def test_contains_domain_key(self):
+        out = _capture(print_dns_section2)
+        assert "DOMAIN" in out
+
+    def test_contains_domain_name_trunk(self):
+        out = _capture(print_dns_section2)
+        assert "DOMAIN_NAME_TRUNK" in out
+
+    def test_contains_domain_name_extension(self):
+        out = _capture(print_dns_section2)
+        assert "DOMAIN_NAME_EXTENSION" in out
+
+    def test_contains_namespace(self):
+        out = _capture(print_dns_section2)
+        assert "bin-manager" in out
+
+    def test_mentions_audit(self):
+        out = _capture(print_dns_section2)
+        assert "audit" in out.lower()
