@@ -93,3 +93,4 @@ class TestDecryptWithSopsErrors:
         all_calls = " ".join(str(c) for c in mock_err.call_args_list)
         assert "secrets.yaml" in all_calls
         assert "invalid_grant" in all_calls
+        assert "cloudkms.cryptoKeyDecrypter" in all_calls  # KMS hint emitted
