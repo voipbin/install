@@ -16,7 +16,7 @@ from typing import Optional, Union
 INSTALLER_DIR = Path(__file__).resolve().parent.parent
 
 # Allowed characters for GCP identifiers used in commands
-_SAFE_ID_RE = re.compile(r"^[a-zA-Z0-9._:/@-]+$")
+_SAFE_ID_RE = re.compile(r"^[a-zA-Z0-9._:/@\[\]-]+$")
 
 
 def _validate_cmd_arg(value: str, name: str) -> None:
