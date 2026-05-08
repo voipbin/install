@@ -3,7 +3,7 @@
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Literal, Optional
 
 import yaml
 
@@ -160,13 +160,18 @@ def create_service_account(
     _validate_cmd_arg(sa_name, "sa_name")
     sa_email = f"{sa_name}@{project_id}.iam.gserviceaccount.com"
 
-    # Create SA (idempotent — ignore already-exists error)
-    run_cmd(
+    # Create SA (idempotent — ignore already-exists error, surface real errors)
+    sa_result = run_cmd(
         ["gcloud", "iam", "service-accounts", "create", sa_name,
          f"--display-name={display_name}",
          f"--project={project_id}"],
         timeout=30,
     )
+    if sa_result.returncode != 0:
+        stderr_lower = sa_result.stderr.lower()
+        if "already exists" not in stderr_lower:
+            print_warning(f"Service account creation error: {sa_result.stderr.strip()}")
+            print_warning("Continuing with role binding using pre-computed SA email.")
 
     # Bind roles
     roles_data = _load_yaml_data("gcp_iam_roles.yaml")
@@ -183,6 +188,38 @@ def create_service_account(
         )
 
     return sa_email
+
+
+REQUIRED_APIS = [
+    "compute.googleapis.com",
+    "container.googleapis.com",
+    "sqladmin.googleapis.com",
+]
+
+
+def check_billing_tristate(project_id: str) -> Literal["enabled", "disabled", "unknown"]:
+    result = run_cmd([
+        "gcloud", "billing", "projects", "describe", project_id,
+        "--format=value(billingEnabled)",
+    ])
+    if result.returncode != 0:
+        return "unknown"
+    if "true" in result.stdout.lower():
+        return "enabled"
+    return "disabled"
+
+
+def check_required_apis(project_id: str) -> list[str]:
+    result = run_cmd([
+        "gcloud", "services", "list",
+        "--enabled",
+        "--project", project_id,
+        "--format=value(config.name)",
+    ])
+    if result.returncode != 0:
+        return []
+    enabled = set(result.stdout.splitlines())
+    return [api for api in REQUIRED_APIS if api not in enabled]
 
 
 def create_kms_keyring(

@@ -1,12 +1,15 @@
 """Tests for scripts/gcp.py — quota logic, API enablement, and KMS key formatting."""
 
 import json
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, call
 
 from scripts.gcp import (
     QuotaResult,
+    check_billing_tristate,
+    check_required_apis,
     check_quotas,
     create_kms_keyring,
+    create_service_account,
     display_quota_results,
 )
 
@@ -266,3 +269,75 @@ class TestCreateKmsKeyring:
         with pytest.raises(ValueError):
             create_kms_keyring("my-project")
         mock_retry.assert_not_called()
+
+
+class TestCheckBillingTristate:
+    @patch("scripts.gcp.run_cmd")
+    def test_billing_enabled(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="True\n")
+        assert check_billing_tristate("my-project") == "enabled"
+
+    @patch("scripts.gcp.run_cmd")
+    def test_billing_enabled_lowercase(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="true\n")
+        assert check_billing_tristate("my-project") == "enabled"
+
+    @patch("scripts.gcp.run_cmd")
+    def test_billing_disabled(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="False\n")
+        assert check_billing_tristate("my-project") == "disabled"
+
+    @patch("scripts.gcp.run_cmd")
+    def test_billing_unknown_on_error(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="PERMISSION_DENIED")
+        assert check_billing_tristate("my-project") == "unknown"
+
+
+class TestCheckRequiredApis:
+    @patch("scripts.gcp.run_cmd")
+    def test_all_enabled_returns_empty(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="compute.googleapis.com\ncontainer.googleapis.com\nsqladmin.googleapis.com\n"
+        )
+        assert check_required_apis("my-project") == []
+
+    @patch("scripts.gcp.run_cmd")
+    def test_one_missing(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="compute.googleapis.com\ncontainer.googleapis.com\n"
+        )
+        missing = check_required_apis("my-project")
+        assert missing == ["sqladmin.googleapis.com"]
+
+    @patch("scripts.gcp.run_cmd")
+    def test_probe_failure_returns_empty(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="error")
+        assert check_required_apis("my-project") == []
+
+
+class TestCreateServiceAccount:
+    @patch("scripts.gcp._load_yaml_data")
+    @patch("scripts.gcp.run_cmd_with_retry")
+    @patch("scripts.gcp.run_cmd")
+    def test_already_exists_is_silent(self, mock_run, mock_retry, mock_load):
+        mock_run.return_value = MagicMock(
+            returncode=1, stderr="ERROR: (gcloud.iam.service-accounts.create) Resource in projects [p] already exists",
+            stdout=""
+        )
+        mock_load.return_value = {"roles": []}
+        email = create_service_account("my-project")
+        assert email == "voipbin-installer@my-project.iam.gserviceaccount.com"
+
+    @patch("scripts.gcp._load_yaml_data")
+    @patch("scripts.gcp.run_cmd_with_retry")
+    @patch("scripts.gcp.run_cmd")
+    @patch("scripts.gcp.print_warning")
+    def test_real_error_prints_warning_and_continues(self, mock_warn, mock_run, mock_retry, mock_load):
+        mock_run.return_value = MagicMock(returncode=1, stderr="PERMISSION_DENIED: foo", stdout="")
+        mock_load.return_value = {"roles": ["roles/editor"]}
+        email = create_service_account("my-project")
+        assert email is not None
+        assert mock_warn.called  # warning printed
+        assert mock_retry.called  # role binding still ran
