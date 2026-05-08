@@ -16,6 +16,11 @@ or what internal services (K8s ConfigMaps, Kamailio VM env vars) use the
 domain. This causes confusion and silent failures while waiting for DNS and
 TLS to work.
 
+Note: the current "Next steps" box in `apply.py` says `voipbin-install status`
+(deployment state) rather than `voipbin-install verify` (health checks). This
+feature replaces that box with the DNS guide, which correctly points users to
+`voipbin-install verify`.
+
 ## Goal
 
 Add a `voipbin-install dns` command that prints a clear, general-purpose
