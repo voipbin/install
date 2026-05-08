@@ -268,6 +268,32 @@ class TestReconcile:
         monkeypatch.setattr("scripts.terraform_reconcile.check_exists_in_gcp", lambda cmd: (False, True))
         assert reconcile(self._make_config()) is True
 
+    def test_unverifiable_resources_are_included_in_import_prompt(self, monkeypatch):
+        # check_ok=False must NOT silently skip — it must be offered for import
+        # to prevent 409 errors when gcloud checks fail (permission/API error)
+        monkeypatch.setattr("scripts.terraform_reconcile.terraform_state_list", lambda cfg: set())
+        monkeypatch.setattr("scripts.terraform_reconcile.check_exists_in_gcp", lambda cmd: (False, False))
+        confirmed = {"called": False}
+        def fake_confirm(msg, default=True):
+            confirmed["called"] = True
+            return False
+        monkeypatch.setattr("scripts.terraform_reconcile.confirm", fake_confirm)
+        reconcile(self._make_config())
+        assert confirmed["called"], "confirm() must be called even when all checks fail"
+
+    def test_unverifiable_resources_are_imported_when_user_approves(self, monkeypatch):
+        monkeypatch.setattr("scripts.terraform_reconcile.terraform_state_list", lambda cfg: set())
+        monkeypatch.setattr("scripts.terraform_reconcile.check_exists_in_gcp", lambda cmd: (False, False))
+        monkeypatch.setattr("scripts.terraform_reconcile.confirm", lambda msg, default=True: True)
+        import_calls = []
+        def fake_import(tf_address, import_id, project_id):
+            import_calls.append(tf_address)
+            return True, ""
+        monkeypatch.setattr("scripts.terraform_reconcile.import_resource", fake_import)
+        result = reconcile(self._make_config())
+        assert result is True
+        assert len(import_calls) > 0, "import_resource must be called for unverifiable resources"
+
     def test_returns_true_when_all_in_state(self, monkeypatch):
         cfg = self._make_config()
         all_addresses = {e["tf_address"] for e in build_registry(cfg)}
