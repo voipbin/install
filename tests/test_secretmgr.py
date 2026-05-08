@@ -2,6 +2,7 @@
 
 import string
 from pathlib import Path
+from unittest.mock import patch, MagicMock
 
 import yaml
 import pytest
@@ -79,3 +80,16 @@ class TestWriteSecretsYaml:
         write_secrets_yaml({"key": "val"}, path)
         mode = path.stat().st_mode & 0o777
         assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
+
+
+class TestDecryptWithSopsErrors:
+    @patch("scripts.secretmgr.print_error")
+    @patch("scripts.secretmgr.run_cmd")
+    def test_decrypt_failure_logs_file_path_and_stderr(self, mock_run, mock_err):
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="invalid_grant")
+        from scripts.secretmgr import decrypt_with_sops
+        result = decrypt_with_sops(Path("/config/secrets.yaml"))
+        assert result is None
+        all_calls = " ".join(str(c) for c in mock_err.call_args_list)
+        assert "secrets.yaml" in all_calls
+        assert "invalid_grant" in all_calls

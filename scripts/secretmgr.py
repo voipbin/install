@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 import yaml
 
+from scripts.display import print_error
 from scripts.utils import generate_key, generate_password, run_cmd
 
 
@@ -44,6 +45,11 @@ def decrypt_with_sops(encrypted_path: Path) -> Optional[dict[str, Any]]:
     """Decrypt a SOPS-encrypted YAML file. Returns parsed dict or None."""
     result = run_cmd(["sops", "--decrypt", str(encrypted_path)], timeout=60)
     if result.returncode != 0:
+        print_error(f"SOPS decryption failed for {encrypted_path}: {result.stderr.strip()}")
+        print_error(
+            "Ensure Application Default Credentials are valid and your account "
+            "has roles/cloudkms.cryptoKeyDecrypter on the KMS key."
+        )
         return None
     return yaml.safe_load(result.stdout)
 
