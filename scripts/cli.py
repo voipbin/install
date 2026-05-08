@@ -13,6 +13,7 @@ import click
 
 from scripts.commands.apply import cmd_apply
 from scripts.commands.destroy import cmd_destroy
+from scripts.commands.dns import cmd_dns
 from scripts.commands.init import cmd_init
 from scripts.commands.status import cmd_status
 from scripts.commands.verify import cmd_verify
@@ -80,6 +81,12 @@ def status(as_json):
 def verify(check_name):
     """Verify VoIPBin deployment health."""
     cmd_verify(check_name=check_name)
+
+
+@cli.command()
+def dns():
+    """Show DNS and domain configuration guide."""
+    cmd_dns()
 
 
 if __name__ == "__main__":

@@ -107,3 +107,16 @@ class TestCmdDns:
     def test_sections_in_order(self):
         out = _capture(cmd_dns)
         assert out.index("DNS Records") < out.index("Kubernetes") < out.index("Kamailio VM")
+
+
+class TestCliDns:
+    def test_exit_zero(self) -> None:
+        import subprocess
+        import sys
+        result = subprocess.run(
+            [sys.executable, "-m", "scripts.cli", "dns"],
+            cwd=str(_ROOT),
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
