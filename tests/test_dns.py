@@ -12,6 +12,7 @@ from rich.console import Console
 import scripts.display as display_mod
 from scripts.commands.dns import print_dns_section1
 from scripts.commands.dns import print_dns_section2
+from scripts.commands.dns import print_dns_section3
 
 _ROOT = Path(__file__).resolve().parent.parent
 
@@ -71,3 +72,25 @@ class TestSection2:
     def test_mentions_audit(self):
         out = _capture(print_dns_section2)
         assert "audit" in out.lower()
+
+
+class TestSection3:
+    def test_contains_base_domain(self):
+        out = _capture(print_dns_section3)
+        assert "BASE_DOMAIN" in out
+
+    def test_contains_domain_name_extension(self):
+        out = _capture(print_dns_section3)
+        assert "DOMAIN_NAME_EXTENSION" in out
+
+    def test_contains_domain_name_trunk(self):
+        out = _capture(print_dns_section3)
+        assert "DOMAIN_NAME_TRUNK" in out
+
+    def test_contains_env_path(self):
+        out = _capture(print_dns_section3)
+        assert "/opt/kamailio-docker/.env" in out
+
+    def test_mentions_rtpengine(self):
+        out = _capture(print_dns_section3)
+        assert "RTPEngine" in out

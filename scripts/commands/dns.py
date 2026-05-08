@@ -6,6 +6,7 @@ import scripts.display as _display
 _SUBDOMAINS = ["api", "admin", "talk", "meet", "sip"]
 _EXAMPLE_DOMAIN = "example.com"
 _EXAMPLE_IP = "1.2.3.4"
+_KAMAILIO_ENV_PATH = "/opt/kamailio-docker/.env"
 
 
 def print_dns_section1() -> None:
@@ -40,4 +41,22 @@ def print_dns_section2() -> None:
     _display.console.print("  If your backend services also need [bold]DOMAIN_NAME_TRUNK[/bold] or")
     _display.console.print(f"  [bold]DOMAIN_NAME_EXTENSION[/bold], add them to [dim]k8s/backend/configmap.yaml[/dim]")
     _display.console.print("  before running apply. Audit which services consume these values first.")
+    _display.console.print()
+
+
+def print_dns_section3() -> None:
+    """Section 3: Kamailio VM env vars guide."""
+    _display.print_header(f"Kamailio VM — {_KAMAILIO_ENV_PATH}")
+    _display.console.print("  [dim]" + "─" * 50 + "[/dim]")
+    _display.console.print()
+    _display.console.print("  Kamailio runs on GCE VMs via Docker Compose. The following")
+    _display.console.print("  domain-related env vars are written by the Ansible playbook:")
+    _display.console.print()
+    _display.console.print(f"    [bold]{'BASE_DOMAIN':<24}[/bold] {_EXAMPLE_DOMAIN}")
+    _display.console.print(f"    [bold]{'DOMAIN_NAME_EXTENSION':<24}[/bold] registrar.{_EXAMPLE_DOMAIN}")
+    _display.console.print(f"    [bold]{'DOMAIN_NAME_TRUNK':<24}[/bold] trunk.{_EXAMPLE_DOMAIN}")
+    _display.console.print()
+    _display.console.print("  RTPEngine has no domain-specific env vars.")
+    _display.console.print()
+    _display.console.print("  To update these after deployment, re-run: [bold]voipbin-install apply[/bold]")
     _display.console.print()
