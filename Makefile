@@ -15,7 +15,7 @@ lint:
 	python3 -m py_compile scripts/commands/init.py
 
 test:
-	python3 -m pytest tests/ -v
+	cd $(dir $(abspath $(lastword $(MAKEFILE_LIST)))) && python3 -m pytest tests/ -v
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +
