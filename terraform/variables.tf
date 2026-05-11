@@ -43,13 +43,13 @@ variable "dns_mode" {
 }
 
 variable "tls_strategy" {
-  description = "TLS certificate strategy: 'letsencrypt' or 'self-signed'"
+  description = "TLS certificate strategy: 'self-signed' (installer-managed bootstrap) or 'byoc' (operator provides cert via voipbin-secret + voipbin-tls Secrets)"
   type        = string
-  default     = "letsencrypt"
+  default     = "self-signed"
 
   validation {
-    condition     = contains(["letsencrypt", "self-signed"], var.tls_strategy)
-    error_message = "tls_strategy must be either 'letsencrypt' or 'self-signed'."
+    condition     = contains(["self-signed", "byoc"], var.tls_strategy)
+    error_message = "tls_strategy must be either 'self-signed' or 'byoc'."
   }
 }
 

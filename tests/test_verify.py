@@ -406,3 +406,140 @@ class TestCheckStaticIpsReserved:
         mock_run.return_value = MagicMock(returncode=0, stdout="{not json", stderr="")
         r = check_static_ips_reserved("proj", "us-central1")
         assert r["status"] == "fail"
+
+
+# ---------------------------------------------------------------------------
+# check_tls_cert_is_production
+# ---------------------------------------------------------------------------
+
+import base64 as _b64
+from unittest.mock import MagicMock as _MM, patch as _patch
+import json as _json
+from datetime import datetime, timedelta, timezone
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
+
+
+def _make_cert(cn: str) -> bytes:
+    """Return PEM bytes for a self-signed cert with the given CN."""
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    subj = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn)])
+    now = datetime.now(timezone.utc)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subj)
+        .issuer_name(subj)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=5))
+        .not_valid_after(now + timedelta(days=10))
+        .sign(private_key=key, algorithm=hashes.SHA256())
+    )
+    return cert.public_bytes(serialization.Encoding.PEM)
+
+
+def _tls_secret_json(cert_pem: bytes) -> str:
+    return _json.dumps({
+        "data": {
+            "tls.crt": _b64.b64encode(cert_pem).decode(),
+            "tls.key": _b64.b64encode(b"dummy").decode(),
+        },
+    })
+
+
+def _opaque_secret_json(cert_pem: bytes) -> str:
+    inner_b64 = _b64.b64encode(cert_pem).decode()
+    outer_b64 = _b64.b64encode(inner_b64.encode()).decode()
+    return _json.dumps({"data": {"SSL_CERT_BASE64": outer_b64}})
+
+
+class TestCheckTlsCertIsProduction:
+    """Verify the tls_cert_is_production check across multi-source layout."""
+
+    @_patch("scripts.verify.run_cmd")
+    def test_all_placeholder_fail(self, mock_run):
+        from scripts.verify import check_tls_cert_is_production
+        placeholder_pem = _make_cert("voipbin-self-signed")
+        responses = [
+            _MM(returncode=0, stdout=_tls_secret_json(placeholder_pem), stderr=""),
+            _MM(returncode=0, stdout=_tls_secret_json(placeholder_pem), stderr=""),
+            _MM(returncode=0, stdout=_opaque_secret_json(placeholder_pem), stderr=""),
+        ]
+        mock_run.side_effect = responses
+        r = check_tls_cert_is_production()
+        assert r["status"] == "fail"
+        assert "PLACEHOLDER" in r["message"]
+
+    @_patch("scripts.verify.run_cmd")
+    def test_all_real_pass(self, mock_run):
+        from scripts.verify import check_tls_cert_is_production
+        real_pem = _make_cert("api.example.com")
+        responses = [
+            _MM(returncode=0, stdout=_tls_secret_json(real_pem), stderr=""),
+            _MM(returncode=0, stdout=_tls_secret_json(real_pem), stderr=""),
+            _MM(returncode=0, stdout=_opaque_secret_json(real_pem), stderr=""),
+        ]
+        mock_run.side_effect = responses
+        r = check_tls_cert_is_production()
+        assert r["status"] == "pass"
+
+    @_patch("scripts.verify.run_cmd")
+    def test_mixed_state_fails(self, mock_run):
+        """voipbin-tls is real but voipbin-secret SSL_CERT_BASE64 still has placeholder."""
+        from scripts.verify import check_tls_cert_is_production
+        real_pem = _make_cert("api.example.com")
+        placeholder_pem = _make_cert("voipbin-self-signed")
+        responses = [
+            _MM(returncode=0, stdout=_tls_secret_json(real_pem), stderr=""),
+            _MM(returncode=0, stdout=_tls_secret_json(real_pem), stderr=""),
+            _MM(returncode=0, stdout=_opaque_secret_json(placeholder_pem), stderr=""),
+        ]
+        mock_run.side_effect = responses
+        r = check_tls_cert_is_production()
+        assert r["status"] == "fail"
+
+    @_patch("scripts.verify.run_cmd")
+    def test_missing_secret_self_signed_mode_warns(self, mock_run):
+        from scripts.verify import check_tls_cert_is_production
+        responses = [
+            _MM(returncode=1, stdout="", stderr='Error from server (NotFound): secrets "voipbin-tls" not found'),
+            _MM(returncode=1, stdout="", stderr='Error from server (NotFound): secrets "voipbin-tls" not found'),
+            _MM(returncode=1, stdout="", stderr='Error from server (NotFound): secrets "voipbin-secret" not found'),
+        ]
+        mock_run.side_effect = responses
+        r = check_tls_cert_is_production(tls_strategy="self-signed")
+        assert r["status"] == "warn"
+
+    @_patch("scripts.verify.run_cmd")
+    def test_missing_secret_byoc_mode_fails(self, mock_run):
+        from scripts.verify import check_tls_cert_is_production
+        responses = [
+            _MM(returncode=1, stdout="", stderr='Error from server (NotFound): secrets "voipbin-tls" not found'),
+            _MM(returncode=1, stdout="", stderr='Error from server (NotFound): secrets "voipbin-tls" not found'),
+            _MM(returncode=1, stdout="", stderr='Error from server (NotFound): secrets "voipbin-secret" not found'),
+        ]
+        mock_run.side_effect = responses
+        r = check_tls_cert_is_production(tls_strategy="byoc")
+        assert r["status"] == "fail"
+
+    @_patch("scripts.verify.run_cmd")
+    def test_unparseable_cert_warns(self, mock_run):
+        from scripts.verify import check_tls_cert_is_production
+        garbage = _json.dumps({"data": {"tls.crt": _b64.b64encode(b"not a real cert").decode()}})
+        real_pem = _make_cert("api.example.com")
+        responses = [
+            _MM(returncode=0, stdout=garbage, stderr=""),
+            _MM(returncode=0, stdout=_tls_secret_json(real_pem), stderr=""),
+            _MM(returncode=0, stdout=_opaque_secret_json(real_pem), stderr=""),
+        ]
+        mock_run.side_effect = responses
+        r = check_tls_cert_is_production()
+        assert r["status"] == "warn"
+
+    def test_placeholder_cn_constant_matches_bootstrap(self):
+        """Single source of truth: verify's placeholder CN must equal
+        the one tls_bootstrap uses when generating the cert."""
+        from scripts.tls_bootstrap import CN_PLACEHOLDER
+        assert CN_PLACEHOLDER == "voipbin-self-signed"

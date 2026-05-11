@@ -51,7 +51,7 @@ def cmd_verify(check_name: str | None = None) -> None:
         fn = getattr(verify_mod, fn_name, None)
         if fn is None:
             print_error(f"Unknown check: {check_name}")
-            print_error(f"Available: gke_cluster, pods_ready, services_endpoints, vms_running, cloudsql_running, static_ips_reserved, dns_resolution, http_health, sip_port")
+            print_error(f"Available: gke_cluster, pods_ready, services_endpoints, vms_running, cloudsql_running, static_ips_reserved, tls_cert_is_production, dns_resolution, http_health, sip_port")
             sys.exit(1)
 
         # Build args from config for the individual check
@@ -66,12 +66,19 @@ def cmd_verify(check_name: str | None = None) -> None:
             "check_vms_running": (project_id, zone, "kamailio"),
             "check_cloudsql_running": (project_id, "voipbin-mysql"),
             "check_static_ips_reserved": (project_id, region),
+            "check_tls_cert_is_production": (),  # uses defaults; tls_strategy gating via config below
             "check_dns_resolution": (f"api.{domain}",),
             "check_http_health": (f"https://api.{domain}/health",),
             "check_sip_port": (f"sip.{domain}",),
         }
         args = args_map.get(fn_name, ())
-        results = [fn(*args)]
+        # Special-case: check_tls_cert_is_production accepts tls_strategy
+        # from config to gate severity. Pass as kwarg so default args_map
+        # entry stays simple.
+        if fn_name == "check_tls_cert_is_production":
+            results = [fn(*args, tls_strategy=config_dict.get("tls_strategy", "self-signed"))]
+        else:
+            results = [fn(*args)]
     else:
         results = run_all_checks(config_dict)
 

@@ -24,7 +24,7 @@ CONFIG_SCHEMA = {
         },
         "tls_strategy": {
             "type": "string",
-            "enum": ["letsencrypt", "gcp-managed", "self-signed", "byoc"],
+            "enum": ["self-signed", "byoc"],
             "description": "TLS certificate strategy",
         },
         "image_tag_strategy": {

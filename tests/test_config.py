@@ -18,7 +18,7 @@ def _make_config(tmp_path: Path) -> InstallerConfig:
         "region": "us-central1",
         "zone": "us-central1-a",
         "gke_type": "zonal",
-        "tls_strategy": "letsencrypt",
+        "tls_strategy": "self-signed",
         "image_tag_strategy": "pinned",
         "domain": "voipbin.example.com",
         "dns_mode": "auto",
@@ -54,6 +54,36 @@ class TestInstallerConfig:
         cfg.set("gke_type", "invalid")
         errors = cfg.validate()
         assert len(errors) > 0
+
+    def test_validate_accepts_self_signed_tls(self, tmp_path):
+        cfg = _make_config(tmp_path)
+        cfg.set("tls_strategy", "self-signed")
+        assert cfg.validate() == []
+
+    def test_validate_accepts_byoc_tls(self, tmp_path):
+        cfg = _make_config(tmp_path)
+        cfg.set("tls_strategy", "byoc")
+        assert cfg.validate() == []
+
+    def test_validate_rejects_letsencrypt_tls(self, tmp_path):
+        cfg = _make_config(tmp_path)
+        cfg.set("tls_strategy", "letsencrypt")
+        assert len(cfg.validate()) > 0
+
+    def test_validate_rejects_gcp_managed_tls(self, tmp_path):
+        cfg = _make_config(tmp_path)
+        cfg.set("tls_strategy", "gcp-managed")
+        assert len(cfg.validate()) > 0
+
+    def test_default_tls_strategy_is_self_signed(self, tmp_path):
+        cfg = InstallerConfig(config_dir=tmp_path)
+        cfg.set_many({
+            "gcp_project_id": "test-123456",
+            "region": "us-central1",
+            "domain": "t.example.com",
+        })
+        cfg.apply_defaults()
+        assert cfg.get("tls_strategy") == "self-signed"
 
     def test_env_override(self, tmp_path):
         cfg = _make_config(tmp_path)

@@ -188,6 +188,138 @@ The `init` wizard asks 7 questions: GCP project ID, region, GKE cluster type,
 TLS strategy, Docker image tag strategy, domain name, and Cloud DNS mode.
 
 
+## TLS Strategy
+
+The installer ships with two TLS strategies:
+
+- **`self-signed` (default).** On first `apply`, the installer generates a
+  10-year self-signed RSA-2048 certificate in memory and stores it in
+  `voipbin-secret.SSL_CERT_BASE64` / `SSL_PRIVKEY_BASE64` (consumed by
+  `api-manager` and `hook-manager` Pods as env-vars), and as a
+  `kubernetes.io/tls` Secret named `voipbin-tls` in both `bin-manager` and
+  `square-manager` namespaces (consumed by frontend nginx-tls sidecars).
+  Browsers will reject the cert with `NET::ERR_CERT_AUTHORITY_INVALID` until
+  the operator either accepts it manually or replaces it. **Replace before
+  exposing production traffic.**
+- **`byoc` (Bring Your Own Cert).** Operator pre-creates the same Secret
+  set with a real CA-issued cert before the `k8s_apply` stage. The bootstrap
+  function detects populated SSL keys and skips its own writes. See
+  [BYOC Mode](#byoc-mode) below.
+
+After install, verify the cert chain is production-grade with:
+
+```bash
+./voipbin-install verify --check=tls_cert_is_production
+```
+
+The check inspects all three cert sources (two `voipbin-tls` Secrets +
+`voipbin-secret.SSL_CERT_BASE64`) and fails if any source still serves the
+installer's placeholder cert (Subject CN = `voipbin-self-signed`).
+
+
+## DNS Records
+
+VoIPBin requires 5 DNS A records, each pointing at the reserved static IP
+for its corresponding Service LoadBalancer. After `apply` completes,
+`./voipbin-install verify` prints the actual IPs assigned. Example:
+
+| Subdomain        | Service                | Notes                          |
+|------------------|------------------------|--------------------------------|
+| `api.<domain>`   | `api-manager` LB       | REST + WebSocket API           |
+| `hook.<domain>`  | `hook-manager` LB      | Webhook ingress (HTTP+HTTPS)   |
+| `admin.<domain>` | `admin` LB (frontend)  | Tenant admin SPA               |
+| `talk.<domain>`  | `talk` LB (frontend)   | Agent talk SPA                 |
+| `meet.<domain>`  | `meet` LB (frontend)   | Audio conference SPA           |
+
+If you chose `dns_mode: auto`, the installer creates the Cloud DNS zone and
+the records automatically; delegate your domain's NS records to GCP. If
+`dns_mode: manual`, create these A records at your registrar.
+
+
+## Production Cert Replacement
+
+The default `self-signed` cert is for bring-up only. Before serving
+production traffic, replace it with a CA-issued cert. The procedure
+updates THREE Secret sources; running `verify --check=tls_cert_is_production`
+afterward confirms all three are consistent.
+
+```bash
+# macOS note: 'base64 -w0' below is GNU. On macOS, replace with
+# 'base64 -i <file> | tr -d "\n"' or install coreutils.
+
+# 1. Place CA-issued cert and key files locally.
+#    e.g., /tmp/voipbin.crt + /tmp/voipbin.key
+
+# 2. Replace the bin-manager Pod-level cert (api-manager, hook-manager
+#    read cert/key from voipbin-secret as env-vars).
+kubectl -n bin-manager patch secret voipbin-secret \
+  --type=merge \
+  -p "{\"data\":{\"SSL_CERT_BASE64\":\"$(base64 -w0 /tmp/voipbin.crt)\",\"SSL_PRIVKEY_BASE64\":\"$(base64 -w0 /tmp/voipbin.key)\"}}"
+
+# 3. Replace the bin-manager voipbin-tls Secret.
+kubectl -n bin-manager create secret tls voipbin-tls \
+  --cert=/tmp/voipbin.crt --key=/tmp/voipbin.key \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# 4. Replace the square-manager voipbin-tls Secret (frontend nginx
+#    sidecars in admin/talk/meet).
+kubectl -n square-manager create secret tls voipbin-tls \
+  --cert=/tmp/voipbin.crt --key=/tmp/voipbin.key \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# 5. Roll the consumers so they pick up the new cert.
+kubectl -n bin-manager rollout restart deployment/api-manager deployment/hook-manager
+kubectl -n square-manager rollout restart deployment/admin deployment/talk deployment/meet
+
+# 6. Run verify to confirm.
+./voipbin-install verify --check=tls_cert_is_production
+```
+
+
+## BYOC Mode
+
+Operator wants to serve a real cert from the very first install (no
+self-signed phase). Run the install in stages, inject the Secrets between
+`ansible_run` and `k8s_apply`:
+
+```bash
+# 1. Run init to write config.yaml + secrets.yaml.
+./voipbin-install init
+# Edit config.yaml: set tls_strategy: byoc
+
+# 2. Provision infrastructure (everything before k8s_apply).
+./voipbin-install apply --stage terraform_init
+./voipbin-install apply --stage terraform_reconcile
+./voipbin-install apply --stage terraform_apply
+./voipbin-install apply --stage ansible_run
+
+# 3. Create both namespaces.
+kubectl create namespace bin-manager
+kubectl create namespace square-manager
+
+# 4. Create voipbin-secret with operator-supplied SSL keys.
+#    The install-shipped k8s/backend/secret.yaml declares 6 non-SSL
+#    keys (JWT_KEY etc.); k8s_apply will 3-way-merge those into this
+#    Secret, preserving the SSL_*_BASE64 keys we set here.
+kubectl -n bin-manager create secret generic voipbin-secret \
+  --from-literal=SSL_CERT_BASE64=$(base64 -w0 /tmp/your.crt) \
+  --from-literal=SSL_PRIVKEY_BASE64=$(base64 -w0 /tmp/your.key)
+
+# 5. Create voipbin-tls Secret in BOTH namespaces.
+for ns in bin-manager square-manager; do
+  kubectl -n $ns create secret tls voipbin-tls \
+    --cert=/tmp/your.crt --key=/tmp/your.key
+done
+
+# 6. Continue install. Bootstrap detects populated SSL keys and skips
+#    its self-signed generation.
+./voipbin-install apply --stage k8s_apply
+
+# 7. Verify production cert is in place across all 3 sources.
+./voipbin-install verify --check=tls_cert_is_production
+```
+
+
 ## Commands
 
 ### init -- Initialize configuration
@@ -246,7 +378,7 @@ gcp_project_id: my-project-123
 region: us-central1
 zone: us-central1-a
 gke_type: zonal
-tls_strategy: letsencrypt
+tls_strategy: self-signed
 image_tag_strategy: pinned
 domain: voipbin.example.com
 dns_mode: auto
@@ -311,6 +443,17 @@ Decrypt manually with: `sops --decrypt secrets.yaml`
 
 ### Load Balancers
 
+**External (Kubernetes Service LoadBalancer x 5)**
+- Each external Service gets a dedicated reserved regional static IP
+  (Terraform `google_compute_address`, naming `<service>-static-ip`).
+- Services: `api-manager` (443), `hook-manager` (80+443,
+  `externalTrafficPolicy: Local` for client-IP preservation),
+  `admin`/`talk`/`meet` (443 via nginx-tls sidecar).
+- TLS termination happens at the Pod (env-var cert for backends,
+  nginx-tls sidecar for frontends), not at any in-cluster ingress
+  controller; the installer does NOT deploy nginx-ingress or
+  cert-manager.
+
 **External (Kamailio)**
 - Static external IP
 - Forwarding rules: UDP 5060 (SIP), TCP 5060-5061 (SIP/TLS), TCP 443 (WSS)
@@ -331,18 +474,21 @@ Decrypt manually with: `sops --decrypt secrets.yaml`
 
 ### DNS (Cloud DNS)
 
-When `dns_mode` is `auto`, the installer creates a managed zone and A records:
+When `dns_mode` is `auto`, the installer creates a managed zone and A
+records pointing each subdomain at the reserved static IP of its
+corresponding Service LoadBalancer:
 
-| Record | Target |
-|--------|--------|
-| `api.<domain>` | Kamailio external LB IP |
-| `admin.<domain>` | Kamailio external LB IP |
-| `talk.<domain>` | Kamailio external LB IP |
-| `meet.<domain>` | Kamailio external LB IP |
-| `sip.<domain>` | Kamailio external LB IP |
+| Record           | Target                                  |
+|------------------|-----------------------------------------|
+| `api.<domain>`   | `api-manager` LB static IP              |
+| `hook.<domain>`  | `hook-manager` LB static IP             |
+| `admin.<domain>` | `admin` (frontend) LB static IP         |
+| `talk.<domain>`  | `talk` (frontend) LB static IP          |
+| `meet.<domain>`  | `meet` (frontend) LB static IP          |
+| `sip.<domain>`   | Kamailio external LB IP (SIP/WSS)       |
 
-When `dns_mode` is `manual`, no DNS resources are created. The installer prints
-the required records for you to configure with your registrar.
+When `dns_mode` is `manual`, no DNS resources are created. The installer
+prints the required records for you to configure with your registrar.
 
 ### Services
 
@@ -507,14 +653,13 @@ install/
 |       |-- common/              # Shared VM setup tasks
 |       |-- kamailio/            # Docker Compose + config templates
 |       |-- rtpengine/           # Docker Compose + config templates
-|-- k8s/                         # 81 Kubernetes manifests
-|   |-- namespaces.yaml          # bin-manager, infrastructure, voip
-|   |-- network-policies/        # Default-deny + allow rules
+|-- k8s/                         # Kubernetes manifests
+|   |-- namespaces.yaml          # bin-manager, square-manager, infrastructure, voip
+|   |-- network-policies/        # Default-deny + per-namespace allow rules
 |   |-- infrastructure/          # Redis, RabbitMQ, ClickHouse, Cloud SQL Proxy
-|   |-- backend/                 # 31 microservice deployments
+|   |-- backend/                 # 31 microservice deployments + api-manager-internal Service
 |   |-- voip/                    # 3 Asterisk deployments
-|   |-- frontend/                # 3 frontend app deployments
-|   |-- ingress/                 # Ingress + cert-manager cluster issuer
+|   |-- frontend/                # 3 frontend apps (square-manager ns) + nginx-tls sidecar
 |   |-- database/                # Database migration job
 |-- tests/                       # 103 unit tests
     |-- test_utils.py            # parse_semver, version_gte, generate_*
@@ -533,17 +678,21 @@ After `voipbin-install apply` completes, configure DNS and verify your domain se
 
 ### DNS Records (at your registrar)
 
-VoIPBin requires the following DNS A records. All subdomains point to the same load balancer IP.
+VoIPBin requires the following DNS A records. Each HTTPS subdomain points
+at its own Service LoadBalancer static IP; `sip` points at the Kamailio
+external LB.
 
-| Subdomain | Type | Value |
-|-----------|------|-------|
-| api.example.com | A | 1.2.3.4 |
-| admin.example.com | A | 1.2.3.4 |
-| talk.example.com | A | 1.2.3.4 |
-| meet.example.com | A | 1.2.3.4 |
-| sip.example.com | A | 1.2.3.4 |
+| Subdomain         | Type | Target                            |
+|-------------------|------|-----------------------------------|
+| api.example.com   | A    | `api-manager` LB IP               |
+| hook.example.com  | A    | `hook-manager` LB IP              |
+| admin.example.com | A    | `admin` (frontend) LB IP          |
+| talk.example.com  | A    | `talk` (frontend) LB IP           |
+| meet.example.com  | A    | `meet` (frontend) LB IP           |
+| sip.example.com   | A    | Kamailio external LB IP (SIP/WSS) |
 
-Replace `example.com` with your domain and `1.2.3.4` with your load balancer IP.
+Replace `example.com` with your domain. Actual IP values are printed by
+`./voipbin-install verify` after `apply` completes.
 
 For **auto DNS mode**: delegate your domain to the GCP nameservers printed after apply completes. GCP then manages the A records.
 

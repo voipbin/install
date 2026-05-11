@@ -281,8 +281,8 @@ Detailed architecture documentation for the VoIPBin GCP deployment.
     |    - Cloud SQL Proxy                    |
     | 5. Backend services (31 deployments)    |
     | 6. VoIP (3 Asterisk deployments)        |
-    | 7. Frontend (3 web apps)               |
-    | 8. Ingress + cert-manager issuer        |
+    | 7. Frontend (3 web apps in square-manager ns)  |
+    | 8. Per-Service LoadBalancers + TLS bootstrap   |
     | 9. Database migration job               |
     +-----------------------------------------+
 ```

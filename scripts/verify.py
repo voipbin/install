@@ -272,6 +272,186 @@ def check_static_ips_reserved(project_id: str, region: str) -> dict:
     return _make_result("Static IPs", status, message, elapsed)
 
 
+def check_tls_cert_is_production(
+    namespaces: tuple[str, ...] = ("bin-manager", "square-manager"),
+    tls_secret_name: str = "voipbin-tls",
+    opaque_secret_name: str = "voipbin-secret",
+    opaque_secret_namespace: str = "bin-manager",
+    tls_strategy: str = "self-signed",
+    placeholder_cn: str | None = None,
+) -> dict:
+    """Verify the active TLS cert chain is operator-supplied, not the
+    installer-managed self-signed placeholder.
+
+    Inspects TWO sources because production cert replacement is a
+    multi-Secret procedure (see README "Production Cert Replacement"):
+      1. ``voipbin-tls`` Secret in each configured namespace
+         (tls.crt data field). Consumed by frontend nginx sidecar.
+      2. ``voipbin-secret.SSL_CERT_BASE64`` in ``bin-manager`` ns.
+         Consumed by bin-api-manager / bin-hook-manager Go binaries
+         as env-vars.
+
+    ``placeholder_cn`` defaults to ``scripts.tls_bootstrap.CN_PLACEHOLDER``
+    (single source of truth).
+
+    ``tls_strategy`` gates severity of missing-Secret outcomes:
+      - ``self-signed``: missing voipbin-tls Secret → warn (bootstrap
+        will create on next init).
+      - ``byoc``: missing voipbin-tls Secret → fail (operator forgot
+        to provision; production-not-ready).
+
+    Top-level status:
+      - ``fail`` if ANY cert has Subject CN == placeholder_cn.
+      - ``fail`` if any Secret is missing in BYOC mode.
+      - ``warn`` if any Secret is missing in self-signed mode, or
+        cert is unparseable, or namespace is missing.
+      - ``pass`` otherwise.
+    """
+    if placeholder_cn is None:
+        from scripts.tls_bootstrap import CN_PLACEHOLDER as _cn
+        placeholder_cn = _cn
+
+    def _check():
+        try:
+            from cryptography import x509
+        except ImportError:
+            return "warn", "cryptography library not installed"
+
+        findings: list[str] = []
+        worst = "pass"
+
+        def _bump(level: str) -> None:
+            nonlocal worst
+            order = {"pass": 0, "warn": 1, "fail": 2}
+            if order[level] > order[worst]:
+                worst = level
+
+        # Helper: parse a base64 PEM cert and return CN, or None on failure.
+        def _cn_from_b64(b64_pem: str) -> tuple[str | None, str | None]:
+            import base64
+            try:
+                pem = base64.b64decode(b64_pem)
+                cert = x509.load_pem_x509_certificate(pem)
+                attrs = cert.subject.get_attributes_for_oid(
+                    x509.NameOID.COMMON_NAME
+                )
+                if not attrs:
+                    return None, "no Subject CN"
+                return attrs[0].value, None
+            except Exception as exc:  # noqa: BLE001
+                return None, f"parse error: {exc}"
+
+        # Source 1: voipbin-tls Secret in each namespace.
+        for ns in namespaces:
+            cmd = [
+                "kubectl", "-n", ns, "get", "secret", tls_secret_name,
+                "-o", "json",
+            ]
+            r = run_cmd(cmd, capture=True, timeout=15)
+            if r.returncode != 0:
+                stderr = (r.stderr or "").lower()
+                if "notfound" in stderr.replace(" ", "") or "not found" in stderr:
+                    level = "fail" if tls_strategy == "byoc" else "warn"
+                    findings.append(f"{ns}/{tls_secret_name}: missing")
+                    _bump(level)
+                    continue
+                findings.append(f"{ns}/{tls_secret_name}: kubectl error")
+                _bump("warn")
+                continue
+            try:
+                data = json.loads(r.stdout)
+            except json.JSONDecodeError:
+                findings.append(f"{ns}/{tls_secret_name}: unparseable JSON")
+                _bump("warn")
+                continue
+            crt_b64 = (data.get("data") or {}).get("tls.crt", "")
+            if not crt_b64:
+                findings.append(f"{ns}/{tls_secret_name}: tls.crt empty")
+                _bump("warn")
+                continue
+            cn, err = _cn_from_b64(crt_b64)
+            if err:
+                findings.append(f"{ns}/{tls_secret_name}: {err}")
+                _bump("warn")
+            elif cn == placeholder_cn:
+                findings.append(f"{ns}/{tls_secret_name}: PLACEHOLDER ({cn})")
+                _bump("fail")
+            else:
+                findings.append(f"{ns}/{tls_secret_name}: {cn}")
+
+        # Source 2: voipbin-secret.SSL_CERT_BASE64 in bin-manager.
+        cmd = [
+            "kubectl", "-n", opaque_secret_namespace, "get", "secret",
+            opaque_secret_name, "-o", "json",
+        ]
+        r = run_cmd(cmd, capture=True, timeout=15)
+        if r.returncode != 0:
+            stderr = (r.stderr or "").lower()
+            if "notfound" in stderr.replace(" ", "") or "not found" in stderr:
+                level = "fail" if tls_strategy == "byoc" else "warn"
+                findings.append(
+                    f"{opaque_secret_namespace}/{opaque_secret_name}: missing"
+                )
+                _bump(level)
+            else:
+                findings.append(
+                    f"{opaque_secret_namespace}/{opaque_secret_name}: kubectl error"
+                )
+                _bump("warn")
+        else:
+            try:
+                data = json.loads(r.stdout)
+                ssl_cert_b64_outer = (data.get("data") or {}).get(
+                    "SSL_CERT_BASE64", ""
+                )
+            except json.JSONDecodeError:
+                findings.append(
+                    f"{opaque_secret_namespace}/{opaque_secret_name}: unparseable JSON"
+                )
+                _bump("warn")
+                ssl_cert_b64_outer = ""
+            if not ssl_cert_b64_outer:
+                level = "fail" if tls_strategy == "byoc" else "warn"
+                findings.append(
+                    f"{opaque_secret_namespace}/{opaque_secret_name}.SSL_CERT_BASE64: empty"
+                )
+                _bump(level)
+            else:
+                # Secret.data fields are double-base64: kubectl returns
+                # base64(value), and the env-var consumers expect the
+                # value itself to be base64(PEM). So decode once to get
+                # the operator-supplied base64-PEM, which is what
+                # _cn_from_b64 already expects.
+                import base64
+                try:
+                    inner_b64 = base64.b64decode(ssl_cert_b64_outer).decode(
+                        "ascii", "replace"
+                    ).strip()
+                except Exception:  # noqa: BLE001
+                    inner_b64 = ""
+                cn, err = _cn_from_b64(inner_b64)
+                if err:
+                    findings.append(
+                        f"{opaque_secret_namespace}/{opaque_secret_name}.SSL_CERT_BASE64: {err}"
+                    )
+                    _bump("warn")
+                elif cn == placeholder_cn:
+                    findings.append(
+                        f"{opaque_secret_namespace}/{opaque_secret_name}.SSL_CERT_BASE64: PLACEHOLDER ({cn})"
+                    )
+                    _bump("fail")
+                else:
+                    findings.append(
+                        f"{opaque_secret_namespace}/{opaque_secret_name}.SSL_CERT_BASE64: {cn}"
+                    )
+
+        message = "; ".join(findings) if findings else "no sources inspected"
+        return worst, message
+
+    status, message, elapsed = _timed(_check)
+    return _make_result("TLS cert is production", status, message, elapsed)
+
+
 # ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
@@ -316,6 +496,10 @@ def run_all_checks(
     # Static IPs reserved (PR #2 of self-hosting redesign)
     if project_id and region:
         results.append(check_static_ips_reserved(project_id, region))
+
+    # TLS cert is production-grade (not the self-signed bootstrap placeholder)
+    tls_strategy = config.get("tls_strategy", "self-signed")
+    results.append(check_tls_cert_is_production(tls_strategy=tls_strategy))
 
     # DNS
     if domain:

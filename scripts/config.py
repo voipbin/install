@@ -84,7 +84,7 @@ class InstallerConfig:
         """Set default values for optional fields not already present."""
         defaults = {
             "gke_type": "zonal",
-            "tls_strategy": "letsencrypt",
+            "tls_strategy": "self-signed",
             "image_tag_strategy": "pinned",
             "dns_mode": "auto",
             "gke_machine_type": DEFAULT_GKE_MACHINE_TYPE,
