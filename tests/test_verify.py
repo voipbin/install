@@ -15,6 +15,7 @@ from scripts.verify import (
     check_pods_ready,
     check_services_endpoints,
     check_sip_port,
+    check_static_ips_reserved,
     check_vms_running,
     run_all_checks,
 )
@@ -353,3 +354,55 @@ class TestResultFormatting:
     def test_all_keys_present(self):
         r = _make_result("n", "pass", "m", 0)
         assert set(r.keys()) == {"name", "status", "message", "duration_ms"}
+
+
+# ---------------------------------------------------------------------------
+# check_static_ips_reserved (PR #2 of self-hosting redesign)
+# ---------------------------------------------------------------------------
+
+class TestCheckStaticIpsReserved:
+    EXPECTED = [
+        {"name": "api-manager-static-ip", "address": "203.0.113.10"},
+        {"name": "hook-manager-static-ip", "address": "203.0.113.11"},
+        {"name": "admin-static-ip", "address": "203.0.113.12"},
+        {"name": "talk-static-ip", "address": "203.0.113.13"},
+        {"name": "meet-static-ip", "address": "203.0.113.14"},
+    ]
+
+    @patch("scripts.verify.run_cmd")
+    def test_all_five_present(self, mock_run):
+        import json
+        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(self.EXPECTED), stderr="")
+        r = check_static_ips_reserved("proj", "us-central1")
+        assert r["status"] == "pass"
+        # Message lists every expected static-IP name.
+        for entry in self.EXPECTED:
+            assert entry["name"] in r["message"]
+        assert r["name"] == "Static IPs"
+
+    @patch("scripts.verify.run_cmd")
+    def test_missing_addresses_warn(self, mock_run):
+        import json
+        # Only 3 of 5 present.
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps(self.EXPECTED[:3]),
+            stderr="",
+        )
+        r = check_static_ips_reserved("proj", "us-central1")
+        assert r["status"] == "warn"
+        assert "talk-static-ip" in r["message"]
+        assert "meet-static-ip" in r["message"]
+
+    @patch("scripts.verify.run_cmd")
+    def test_gcloud_error_fail(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="forbidden")
+        r = check_static_ips_reserved("proj", "us-central1")
+        assert r["status"] == "fail"
+        assert "forbidden" in r["message"]
+
+    @patch("scripts.verify.run_cmd")
+    def test_invalid_json_fail(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="{not json", stderr="")
+        r = check_static_ips_reserved("proj", "us-central1")
+        assert r["status"] == "fail"

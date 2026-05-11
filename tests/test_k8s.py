@@ -131,6 +131,43 @@ class TestBuildSubstitutionMap:
             "PLACEHOLDER_RABBITMQ_USER",
             "PLACEHOLDER_RABBITMQ_ADDRESS",
             "PLACEHOLDER_REDIS_ADDRESS",
+            "PLACEHOLDER_STATIC_IP_NAME_API_MANAGER",
+            "PLACEHOLDER_STATIC_IP_NAME_HOOK_MANAGER",
+            "PLACEHOLDER_STATIC_IP_NAME_ADMIN",
+            "PLACEHOLDER_STATIC_IP_NAME_TALK",
+            "PLACEHOLDER_STATIC_IP_NAME_MEET",
         }
         for placeholder in known_placeholders:
             assert placeholder in subs, f"Missing substitution for {placeholder}"
+
+
+class TestStaticIpPlaceholders:
+    """The 5 PLACEHOLDER_STATIC_IP_NAME_* tokens added in PR #2 of the
+    self-hosting redesign read from terraform_outputs and have safe
+    default fallbacks matching the Terraform resource names."""
+
+    def test_static_ip_tokens_from_terraform_outputs(self, sample_config, sample_secrets):
+        tf_outputs = {
+            "api_manager_static_ip_name": "api-manager-static-ip",
+            "hook_manager_static_ip_name": "hook-manager-static-ip",
+            "admin_static_ip_name": "admin-static-ip",
+            "talk_static_ip_name": "talk-static-ip",
+            "meet_static_ip_name": "meet-static-ip",
+        }
+        subs = _build_substitution_map(sample_config, tf_outputs, sample_secrets)
+        assert subs["PLACEHOLDER_STATIC_IP_NAME_API_MANAGER"] == "api-manager-static-ip"
+        assert subs["PLACEHOLDER_STATIC_IP_NAME_HOOK_MANAGER"] == "hook-manager-static-ip"
+        assert subs["PLACEHOLDER_STATIC_IP_NAME_ADMIN"] == "admin-static-ip"
+        assert subs["PLACEHOLDER_STATIC_IP_NAME_TALK"] == "talk-static-ip"
+        assert subs["PLACEHOLDER_STATIC_IP_NAME_MEET"] == "meet-static-ip"
+
+    def test_static_ip_tokens_fallback_when_tf_outputs_empty(self, sample_config, sample_secrets):
+        subs = _build_substitution_map(sample_config, {}, sample_secrets)
+        # Fallbacks match the Terraform resource names so PR #3a (which
+        # adds the annotation references) does not break if a stale
+        # state file lacks the new outputs.
+        assert subs["PLACEHOLDER_STATIC_IP_NAME_API_MANAGER"] == "api-manager-static-ip"
+        assert subs["PLACEHOLDER_STATIC_IP_NAME_HOOK_MANAGER"] == "hook-manager-static-ip"
+        assert subs["PLACEHOLDER_STATIC_IP_NAME_ADMIN"] == "admin-static-ip"
+        assert subs["PLACEHOLDER_STATIC_IP_NAME_TALK"] == "talk-static-ip"
+        assert subs["PLACEHOLDER_STATIC_IP_NAME_MEET"] == "meet-static-ip"

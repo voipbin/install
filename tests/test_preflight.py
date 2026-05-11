@@ -1,7 +1,7 @@
 """Tests for scripts/preflight.py — version parsers and preflight result logic."""
 
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from scripts.preflight import (
     PreflightResult,
@@ -133,3 +133,41 @@ class TestRunPreflightDisplayOsHints:
         run_preflight_display(results)
         call_args = " ".join(str(a) for a in mock_err.call_args_list)
         assert "pip3 install ansible" in call_args
+
+
+class TestCheckStaticIpQuota:
+    """check_static_ip_quota inspects STATIC_ADDRESSES quota for the region."""
+
+    @patch("scripts.preflight.run_cmd")
+    def test_sufficient_quota(self, mock_run):
+        from scripts.preflight import check_static_ip_quota
+        payload = {"quotas": [{"metric": "STATIC_ADDRESSES", "limit": 8, "usage": 2}]}
+        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(payload), stderr="")
+        assert check_static_ip_quota("proj", "us-central1", needed=5) is True
+
+    @patch("scripts.preflight.run_cmd")
+    def test_insufficient_quota(self, mock_run):
+        from scripts.preflight import check_static_ip_quota
+        payload = {"quotas": [{"metric": "STATIC_ADDRESSES", "limit": 8, "usage": 5}]}
+        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(payload), stderr="")
+        # 8 - 5 = 3, need 5 -> False
+        assert check_static_ip_quota("proj", "us-central1", needed=5) is False
+
+    @patch("scripts.preflight.run_cmd")
+    def test_gcloud_error_returns_false(self, mock_run):
+        from scripts.preflight import check_static_ip_quota
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="forbidden")
+        assert check_static_ip_quota("proj", "us-central1") is False
+
+    @patch("scripts.preflight.run_cmd")
+    def test_invalid_json_returns_false(self, mock_run):
+        from scripts.preflight import check_static_ip_quota
+        mock_run.return_value = MagicMock(returncode=0, stdout="{not json", stderr="")
+        assert check_static_ip_quota("proj", "us-central1") is False
+
+    @patch("scripts.preflight.run_cmd")
+    def test_missing_metric_returns_false(self, mock_run):
+        from scripts.preflight import check_static_ip_quota
+        payload = {"quotas": [{"metric": "CPUS", "limit": 100, "usage": 10}]}
+        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(payload), stderr="")
+        assert check_static_ip_quota("proj", "us-central1") is False

@@ -163,6 +163,39 @@ def check_gcp_billing(project_id: str) -> bool:
     return result.returncode == 0 and "true" in result.stdout.lower()
 
 
+def check_static_ip_quota(project_id: str, region: str, needed: int = 5) -> bool:
+    """Check that the GCP project has at least *needed* regional
+    static-IP slots free in *region*. Returns True on sufficient quota.
+
+    Uses ``gcloud compute regions describe <region>`` and parses the
+    STATIC_ADDRESSES quota. A return of False does not abort the
+    install on its own; callers decide whether to treat the shortage
+    as fatal.
+    """
+    from scripts.utils import _validate_cmd_arg
+    _validate_cmd_arg(project_id, "project_id")
+    _validate_cmd_arg(region, "region")
+    result = run_cmd(
+        [
+            "gcloud", "compute", "regions", "describe", region,
+            "--project", project_id, "--format=json",
+        ],
+        timeout=30,
+    )
+    if result.returncode != 0:
+        return False
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return False
+    for q in data.get("quotas", []):
+        if q.get("metric") == "STATIC_ADDRESSES":
+            limit = q.get("limit", 0)
+            usage = q.get("usage", 0)
+            return (limit - usage) >= needed
+    return False
+
+
 def run_preflight_display(results: list[PreflightResult]) -> bool:
     """Display preflight results. Returns True if all passed."""
     print_header("Checking prerequisites...")

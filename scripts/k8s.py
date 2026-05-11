@@ -51,6 +51,24 @@ def _build_substitution_map(
         "PLACEHOLDER_RECORDING_BUCKET_NAME": terraform_outputs.get(
             "recording_bucket_name", f"{project_id}-voipbin-recordings"
         ),
+        # External Service static IPs (PR #2 of self-hosting redesign).
+        # Manifests start referencing these in PR #3a; for now the
+        # tokens resolve so the substitution map stays consistent.
+        "PLACEHOLDER_STATIC_IP_NAME_API_MANAGER": terraform_outputs.get(
+            "api_manager_static_ip_name", "api-manager-static-ip"
+        ),
+        "PLACEHOLDER_STATIC_IP_NAME_HOOK_MANAGER": terraform_outputs.get(
+            "hook_manager_static_ip_name", "hook-manager-static-ip"
+        ),
+        "PLACEHOLDER_STATIC_IP_NAME_ADMIN": terraform_outputs.get(
+            "admin_static_ip_name", "admin-static-ip"
+        ),
+        "PLACEHOLDER_STATIC_IP_NAME_TALK": terraform_outputs.get(
+            "talk_static_ip_name", "talk-static-ip"
+        ),
+        "PLACEHOLDER_STATIC_IP_NAME_MEET": terraform_outputs.get(
+            "meet_static_ip_name", "meet-static-ip"
+        ),
         # Derived composite values
         "PLACEHOLDER_RABBITMQ_ADDRESS": (
             f"amqp://{rabbitmq_user}:{rabbitmq_password}"

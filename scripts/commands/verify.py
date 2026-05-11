@@ -51,12 +51,13 @@ def cmd_verify(check_name: str | None = None) -> None:
         fn = getattr(verify_mod, fn_name, None)
         if fn is None:
             print_error(f"Unknown check: {check_name}")
-            print_error(f"Available: gke_cluster, pods_ready, services_endpoints, vms_running, cloudsql_running, dns_resolution, http_health, sip_port")
+            print_error(f"Available: gke_cluster, pods_ready, services_endpoints, vms_running, cloudsql_running, static_ips_reserved, dns_resolution, http_health, sip_port")
             sys.exit(1)
 
         # Build args from config for the individual check
         project_id = config_dict.get("gcp_project_id", "")
         zone = config_dict.get("zone", "")
+        region = config_dict.get("region", "")
         domain = config_dict.get("domain", "")
         args_map = {
             "check_gke_cluster": (project_id, zone, "voipbin-cluster"),
@@ -64,6 +65,7 @@ def cmd_verify(check_name: str | None = None) -> None:
             "check_services_endpoints": ("bin-manager",),
             "check_vms_running": (project_id, zone, "kamailio"),
             "check_cloudsql_running": (project_id, "voipbin-mysql"),
+            "check_static_ips_reserved": (project_id, region),
             "check_dns_resolution": (f"api.{domain}",),
             "check_http_health": (f"https://api.{domain}/health",),
             "check_sip_port": (f"sip.{domain}",),
