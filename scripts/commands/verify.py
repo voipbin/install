@@ -60,8 +60,8 @@ def cmd_verify(check_name: str | None = None) -> None:
         domain = config_dict.get("domain", "")
         args_map = {
             "check_gke_cluster": (project_id, zone, "voipbin-cluster"),
-            "check_pods_ready": ("voipbin-backend",),
-            "check_services_endpoints": ("voipbin-backend",),
+            "check_pods_ready": ("bin-manager",),
+            "check_services_endpoints": ("bin-manager",),
             "check_vms_running": (project_id, zone, "kamailio"),
             "check_cloudsql_running": (project_id, "voipbin-mysql"),
             "check_dns_resolution": (f"api.{domain}",),

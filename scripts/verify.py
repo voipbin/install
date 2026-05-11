@@ -250,11 +250,11 @@ def run_all_checks(
     results.append(check_gke_cluster(project_id, zone, cluster_name))
 
     # Pods in key namespaces
-    for ns in ("voipbin-backend", "voipbin-voip", "voipbin-frontend"):
+    for ns in ("bin-manager", "infrastructure", "voip"):
         results.append(check_pods_ready(ns))
 
     # Service endpoints
-    for ns in ("voipbin-backend", "voipbin-voip", "voipbin-frontend"):
+    for ns in ("bin-manager", "infrastructure", "voip"):
         results.append(check_services_endpoints(ns))
 
     # VMs
