@@ -3,6 +3,7 @@ kind: Kustomization
 
 resources:
   - api-manager.yaml
+  - api-manager-internal.yaml
   - agent-manager.yaml
   - ai-manager.yaml
   - billing-manager.yaml
@@ -16,6 +17,7 @@ resources:
   - email-manager.yaml
   - flow-manager.yaml
   - hook-manager.yaml
+  - hook-manager-pdb.yaml
   - message-manager.yaml
   - number-manager.yaml
   - outdial-manager.yaml

@@ -4,5 +4,6 @@ kind: Kustomization
 resources:
   - default-deny.yaml
   - bin-manager-policies.yaml
+  - square-manager-policies.yaml
   - infrastructure-policies.yaml
   - voip-policies.yaml

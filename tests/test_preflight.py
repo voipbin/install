@@ -229,6 +229,7 @@ class TestCheckLoadbalancerAddresses:
         from scripts.preflight import check_loadbalancer_addresses
         outputs = {
             "api_manager_static_ip_address": "1.2.3.4",
+            "hook_manager_static_ip_address": "1.2.3.8",
             "admin_static_ip_address": "",
             "talk_static_ip_address": "   ",
         }
@@ -237,9 +238,9 @@ class TestCheckLoadbalancerAddresses:
         assert "talk_static_ip_address" in missing
         assert "meet_static_ip_address" in missing
         assert "api_manager_static_ip_address" not in missing
-        # hook is not required in PR #3a
+        # PR #3b: hook is now required (LoadBalancer flip)
         assert "hook_manager_static_ip_address" not in missing
 
     def test_all_missing(self):
         from scripts.preflight import check_loadbalancer_addresses
-        assert len(check_loadbalancer_addresses({})) == 4
+        assert len(check_loadbalancer_addresses({})) == 5

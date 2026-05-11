@@ -228,9 +228,9 @@ def k8s_apply(
         return False
 
     # 4. NodePort preflight (non-fatal warning)
-    if not check_nodeport_availability(needed=4):
+    if not check_nodeport_availability(needed=7):
         print_warning(
-            "Cluster may have fewer than 4 free NodePort slots in "
+            "Cluster may have fewer than 7 free NodePort slots in "
             "30000-32767. LB Service creation may stall. Free unused "
             "NodePort Services or expand the range."
         )
