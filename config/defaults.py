@@ -16,10 +16,16 @@ GKE_TYPES = [
 ]
 
 TLS_STRATEGIES = [
-    {"id": "letsencrypt", "name": "Let's Encrypt (cert-manager)", "note": "Free, auto-renewing"},
-    {"id": "gcp-managed", "name": "GCP-managed certificates", "note": "Free, auto-renewing"},
-    {"id": "self-signed", "name": "Self-signed certificates", "note": "Immediate, browser warnings"},
-    {"id": "byoc", "name": "Bring your own", "note": "Provide cert/key files"},
+    {
+        "id": "self-signed",
+        "name": "Self-signed (installer-managed)",
+        "note": "Fresh install ready out of the box; replace before production",
+    },
+    {
+        "id": "byoc",
+        "name": "Bring Your Own Cert",
+        "note": "Operator provides cert/key via voipbin-secret + voipbin-tls Secrets",
+    },
 ]
 
 IMAGE_TAG_STRATEGIES = [
