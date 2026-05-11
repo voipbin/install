@@ -49,7 +49,9 @@ metadata:
   labels:
     app: square-meet
 spec:
-  type: ClusterIP
+  type: LoadBalancer
+  loadBalancerIP: PLACEHOLDER_STATIC_IP_ADDRESS_MEET
+  externalTrafficPolicy: Cluster
   ports:
     - name: http
       port: 80

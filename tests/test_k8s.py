@@ -171,3 +171,44 @@ class TestStaticIpPlaceholders:
         assert subs["PLACEHOLDER_STATIC_IP_NAME_ADMIN"] == "admin-static-ip"
         assert subs["PLACEHOLDER_STATIC_IP_NAME_TALK"] == "talk-static-ip"
         assert subs["PLACEHOLDER_STATIC_IP_NAME_MEET"] == "meet-static-ip"
+
+
+class TestStaticIpAddressTokens:
+    """PR #3a adds 5 ADDRESS substitution tokens fed from Terraform
+    `*_static_ip_address` outputs. Default is empty string so that
+    `Service.spec.loadBalancerIP: ` becomes YAML null when operator
+    has not run `terraform apply` yet (the k8s_apply preflight
+    raises before this hits GCP)."""
+
+    address_tokens = (
+        "PLACEHOLDER_STATIC_IP_ADDRESS_API_MANAGER",
+        "PLACEHOLDER_STATIC_IP_ADDRESS_HOOK_MANAGER",
+        "PLACEHOLDER_STATIC_IP_ADDRESS_ADMIN",
+        "PLACEHOLDER_STATIC_IP_ADDRESS_TALK",
+        "PLACEHOLDER_STATIC_IP_ADDRESS_MEET",
+    )
+
+    def test_terraform_outputs_propagate(self, sample_config, sample_secrets):
+        tf_outputs = {
+            "api_manager_static_ip_address": "10.0.0.1",
+            "hook_manager_static_ip_address": "10.0.0.2",
+            "admin_static_ip_address": "10.0.0.3",
+            "talk_static_ip_address": "10.0.0.4",
+            "meet_static_ip_address": "10.0.0.5",
+        }
+        subs = _build_substitution_map(sample_config, tf_outputs, sample_secrets)
+        assert subs["PLACEHOLDER_STATIC_IP_ADDRESS_API_MANAGER"] == "10.0.0.1"
+        assert subs["PLACEHOLDER_STATIC_IP_ADDRESS_HOOK_MANAGER"] == "10.0.0.2"
+        assert subs["PLACEHOLDER_STATIC_IP_ADDRESS_ADMIN"] == "10.0.0.3"
+        assert subs["PLACEHOLDER_STATIC_IP_ADDRESS_TALK"] == "10.0.0.4"
+        assert subs["PLACEHOLDER_STATIC_IP_ADDRESS_MEET"] == "10.0.0.5"
+
+    def test_default_is_empty_string(self, sample_config, sample_secrets):
+        subs = _build_substitution_map(sample_config, {}, sample_secrets)
+        for token in self.address_tokens:
+            assert subs[token] == "", f"{token} default must be empty string"
+
+    def test_all_tokens_registered(self, sample_config, sample_secrets):
+        subs = _build_substitution_map(sample_config, {}, sample_secrets)
+        for token in self.address_tokens:
+            assert token in subs

@@ -9,4 +9,3 @@ resources:
   - voip
   - backend
   - frontend
-  - ingress

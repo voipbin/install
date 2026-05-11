@@ -2,3 +2,4 @@ rich>=13.7.0
 pyyaml>=6.0.1
 click>=8.1.7
 jsonschema>=4.21.0
+cryptography>=42.0.0,<46

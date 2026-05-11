@@ -62,16 +62,15 @@ metadata:
   labels:
     app: api-manager
 spec:
-  type: ClusterIP
+  type: LoadBalancer
+  loadBalancerIP: PLACEHOLDER_STATIC_IP_ADDRESS_API_MANAGER
+  externalTrafficPolicy: Cluster
   ports:
-    - name: api
+    - name: https
       port: 443
       targetPort: 443
-    - name: metrics
-      port: 2112
-      targetPort: 2112
-    - name: audiosocket
-      port: 9000
-      targetPort: 9000
   selector:
     app: api-manager
+  # PR #3a: metrics (2112) and audiosocket (9000) are intentionally
+  # omitted from the external LB Service. PR #3b creates an
+  # `api-manager-internal` ClusterIP Service for those ports.
