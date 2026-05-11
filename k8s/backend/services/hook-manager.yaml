@@ -6,7 +6,7 @@ metadata:
   labels:
     app: hook-manager
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: hook-manager
@@ -23,6 +23,10 @@ spec:
         - name: hook-manager
           image: voipbin/hook-manager
           ports:
+            - containerPort: 80
+              name: http
+            - containerPort: 443
+              name: https
             - containerPort: 2112
               name: metrics
           envFrom:
@@ -58,10 +62,22 @@ metadata:
   labels:
     app: hook-manager
 spec:
-  type: ClusterIP
+  type: LoadBalancer
+  loadBalancerIP: PLACEHOLDER_STATIC_IP_ADDRESS_HOOK_MANAGER
+  externalTrafficPolicy: Local
   ports:
-    - name: metrics
-      port: 2112
-      targetPort: 2112
+    - name: http
+      port: 80
+      targetPort: 80
+    - name: https
+      port: 443
+      targetPort: 443
   selector:
     app: hook-manager
+  # PR #3b: metrics (2112) is intentionally NOT exposed via this LB.
+  # Prometheus reaches it via Pod-IP scrape (kubelet annotations).
+  # externalTrafficPolicy: Local preserves client IP for webhook
+  # provider audit/allowlisting. Requires healthCheckNodePort, which
+  # GCP allocates automatically (counted in preflight needed=7).
+  # replicas: 2 + PodDisruptionBudget(minAvailable=1) eliminates the
+  # single-Pod node-drain footgun inherent to externalTrafficPolicy: Local.

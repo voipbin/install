@@ -21,3 +21,11 @@ metadata:
   labels:
     app.kubernetes.io/part-of: voipbin
     pod-security.kubernetes.io/enforce: baseline
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: square-manager
+  labels:
+    app.kubernetes.io/part-of: voipbin
+    pod-security.kubernetes.io/enforce: baseline

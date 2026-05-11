@@ -1,0 +1,12 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: hook-manager-pdb
+  namespace: bin-manager
+  labels:
+    app: hook-manager
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: hook-manager
