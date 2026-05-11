@@ -142,3 +142,57 @@ output "zone" {
   description = "GCP zone"
   value       = var.zone
 }
+
+###############################################################################
+# External Service Static IPs (PR #2 of self-hosting redesign)
+###############################################################################
+
+output "api_manager_static_ip_name" {
+  description = "Reserved static-IP name for the api-manager Service annotation"
+  value       = google_compute_address.external_service["api-manager"].name
+}
+
+output "api_manager_static_ip_address" {
+  description = "Reserved static-IP address for api-manager"
+  value       = google_compute_address.external_service["api-manager"].address
+}
+
+output "hook_manager_static_ip_name" {
+  description = "Reserved static-IP name for the hook-manager Service annotation"
+  value       = google_compute_address.external_service["hook-manager"].name
+}
+
+output "hook_manager_static_ip_address" {
+  description = "Reserved static-IP address for hook-manager"
+  value       = google_compute_address.external_service["hook-manager"].address
+}
+
+output "admin_static_ip_name" {
+  description = "Reserved static-IP name for the admin Service annotation"
+  value       = google_compute_address.external_service["admin"].name
+}
+
+output "admin_static_ip_address" {
+  description = "Reserved static-IP address for admin"
+  value       = google_compute_address.external_service["admin"].address
+}
+
+output "talk_static_ip_name" {
+  description = "Reserved static-IP name for the talk Service annotation"
+  value       = google_compute_address.external_service["talk"].name
+}
+
+output "talk_static_ip_address" {
+  description = "Reserved static-IP address for talk"
+  value       = google_compute_address.external_service["talk"].address
+}
+
+output "meet_static_ip_name" {
+  description = "Reserved static-IP name for the meet Service annotation"
+  value       = google_compute_address.external_service["meet"].name
+}
+
+output "meet_static_ip_address" {
+  description = "Reserved static-IP address for meet"
+  value       = google_compute_address.external_service["meet"].address
+}

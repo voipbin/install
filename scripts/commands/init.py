@@ -31,6 +31,7 @@ from scripts.preflight import (
     check_gcp_billing,
     check_gcp_project,
     check_prerequisites,
+    check_static_ip_quota,
     run_preflight_display,
 )
 from scripts.diagnosis import (
@@ -146,6 +147,17 @@ def cmd_init(
         print_error("Enable it at: https://console.cloud.google.com/billing")
         sys.exit(1)
     print_success("Billing enabled")
+
+    # Static-IP quota: non-fatal warning. The redesign reserves 5
+    # regional EXTERNAL static IPs per install (one per externally
+    # exposed Service). gcloud-reported quota can lag actual quota,
+    # so this is advisory only.
+    if not check_static_ip_quota(project_id, region, needed=5):
+        print_warning(
+            f"Region {region} may not have 5 free STATIC_ADDRESSES slots. "
+            f"Request a quota increase before deploying: "
+            f"gcloud compute regions describe {region} --project {project_id}"
+        )
 
     # --- Step 5: Quota check ---
     if not skip_quota_check:

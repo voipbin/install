@@ -1,5 +1,6 @@
 """Post-install verification checks for VoIPBin deployment."""
 
+import json
 import socket
 import time
 from typing import Any, Optional
@@ -224,6 +225,53 @@ def check_sip_port(host: str, port: int = 5060) -> dict:
     return _make_result(f"SIP {host}:{port}", status, message, elapsed)
 
 
+def check_static_ips_reserved(project_id: str, region: str) -> dict:
+    """Check that the 5 expected external-service static IPs are
+    reserved in GCP. Returns a result dict.
+
+    Lists ``gcloud compute addresses list`` filtered to the install's
+    region; passes if all 5 expected names are present.
+    """
+    def _check():
+        from scripts.utils import _validate_cmd_arg
+        _validate_cmd_arg(project_id, "project_id")
+        _validate_cmd_arg(region, "region")
+        expected = {
+            "api-manager-static-ip",
+            "hook-manager-static-ip",
+            "admin-static-ip",
+            "talk-static-ip",
+            "meet-static-ip",
+        }
+        cmd = [
+            "gcloud", "compute", "addresses", "list",
+            "--project", project_id,
+            "--filter", f"region:{region}",
+            "--format=json",
+        ]
+        result = run_cmd(cmd, capture=True, timeout=30)
+        if result.returncode != 0:
+            return "fail", f"gcloud error: {result.stderr.strip()}"
+        try:
+            data = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return "fail", "could not parse gcloud output"
+        found = {a.get("name", "") for a in data}
+        missing = expected - found
+        if missing:
+            return "warn", f"missing: {sorted(missing)}"
+        ips = {
+            a.get("name", ""): a.get("address", "")
+            for a in data
+            if a.get("name", "") in expected
+        }
+        ip_str = " ".join(f"{n}={a}" for n, a in sorted(ips.items()))
+        return "pass", ip_str
+
+    status, message, elapsed = _timed(_check)
+    return _make_result("Static IPs", status, message, elapsed)
+
+
 # ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
@@ -240,6 +288,7 @@ def run_all_checks(
     tf = terraform_outputs or {}
     project_id = config.get("gcp_project_id", "")
     zone = config.get("zone", "")
+    region = config.get("region", "")
     domain = config.get("domain", "")
     cluster_name = tf.get("gke_cluster_name", "voipbin-cluster")
     sql_instance = tf.get("cloudsql_instance_name", "voipbin-mysql")
@@ -263,6 +312,10 @@ def run_all_checks(
 
     # Cloud SQL
     results.append(check_cloudsql_running(project_id, sql_instance))
+
+    # Static IPs reserved (PR #2 of self-hosting redesign)
+    if project_id and region:
+        results.append(check_static_ips_reserved(project_id, region))
 
     # DNS
     if domain:
