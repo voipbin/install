@@ -196,6 +196,56 @@ def check_static_ip_quota(project_id: str, region: str, needed: int = 5) -> bool
     return False
 
 
+def check_nodeport_availability(needed: int = 4) -> bool:
+    """Check the cluster has at least *needed* free NodePort slots.
+
+    Default NodePort range in Kubernetes is 30000-32767 (2768 slots).
+    PR #3a consumes 4 NodePorts: api-manager LB (443), and three
+    frontend LBs (square-admin/talk/meet, 80 each). hook-manager
+    stays ClusterIP in PR #3a; PR #3b raises the count.
+
+    Returns True on sufficient capacity. False return is a non-fatal
+    warning — callers decide whether to treat as warning or fatal.
+    Returns False on kubectl failure or malformed output (defensive).
+    """
+    result = run_cmd(
+        ["kubectl", "get", "svc", "--all-namespaces", "-o", "json"],
+        timeout=30,
+    )
+    if result.returncode != 0:
+        return False
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return False
+
+    used: set[int] = set()
+    for item in data.get("items", []):
+        for port in (item.get("spec", {}) or {}).get("ports", []) or []:
+            np = port.get("nodePort")
+            if isinstance(np, int):
+                used.add(np)
+    total = 32767 - 30000 + 1
+    free = total - len(used)
+    return free >= needed
+
+
+def check_loadbalancer_addresses(terraform_outputs: dict[str, str]) -> list[str]:
+    """Return the list of ADDRESS output names that are missing or empty.
+
+    PR #3a binds 4 reserved IPs to LB Services (api-manager, admin,
+    talk, meet). hook-manager IP is reserved but unused in this PR.
+    Caller hard-fails when this returns a non-empty list.
+    """
+    required = [
+        "api_manager_static_ip_address",
+        "admin_static_ip_address",
+        "talk_static_ip_address",
+        "meet_static_ip_address",
+    ]
+    return [k for k in required if not (terraform_outputs.get(k) or "").strip()]
+
+
 def run_preflight_display(results: list[PreflightResult]) -> bool:
     """Display preflight results. Returns True if all passed."""
     print_header("Checking prerequisites...")

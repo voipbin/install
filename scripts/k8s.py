@@ -51,9 +51,13 @@ def _build_substitution_map(
         "PLACEHOLDER_RECORDING_BUCKET_NAME": terraform_outputs.get(
             "recording_bucket_name", f"{project_id}-voipbin-recordings"
         ),
-        # External Service static IPs (PR #2 of self-hosting redesign).
-        # Manifests start referencing these in PR #3a; for now the
-        # tokens resolve so the substitution map stays consistent.
+        # External Service static IPs.
+        # NAME tokens (PR #10) kept for backward-compat; not consumed by
+        # manifests in PR #3a. ADDRESS tokens are bound to
+        # `Service.spec.loadBalancerIP` and must resolve to an IPv4
+        # literal — empty string is acceptable as it produces
+        # `loadBalancerIP:` (null) and the preflight in init.py raises
+        # before manifests reach GCP if any ADDRESS is empty.
         "PLACEHOLDER_STATIC_IP_NAME_API_MANAGER": terraform_outputs.get(
             "api_manager_static_ip_name", "api-manager-static-ip"
         ),
@@ -68,6 +72,21 @@ def _build_substitution_map(
         ),
         "PLACEHOLDER_STATIC_IP_NAME_MEET": terraform_outputs.get(
             "meet_static_ip_name", "meet-static-ip"
+        ),
+        "PLACEHOLDER_STATIC_IP_ADDRESS_API_MANAGER": terraform_outputs.get(
+            "api_manager_static_ip_address", ""
+        ),
+        "PLACEHOLDER_STATIC_IP_ADDRESS_HOOK_MANAGER": terraform_outputs.get(
+            "hook_manager_static_ip_address", ""
+        ),
+        "PLACEHOLDER_STATIC_IP_ADDRESS_ADMIN": terraform_outputs.get(
+            "admin_static_ip_address", ""
+        ),
+        "PLACEHOLDER_STATIC_IP_ADDRESS_TALK": terraform_outputs.get(
+            "talk_static_ip_address", ""
+        ),
+        "PLACEHOLDER_STATIC_IP_ADDRESS_MEET": terraform_outputs.get(
+            "meet_static_ip_address", ""
         ),
         # Derived composite values
         "PLACEHOLDER_RABBITMQ_ADDRESS": (
@@ -164,16 +183,57 @@ def k8s_apply(
 
     Steps:
     1. Fetch GKE credentials
-    2. Render manifests via kustomize with placeholder substitution
-    3. Apply the rendered manifests via ``kubectl apply -f -``
+    2. Preflight LoadBalancer ADDRESS tokens (hard fail if any empty
+       except when `tls_strategy == "byoc"`)
+    3. Render manifests via kustomize with placeholder substitution
+    4. Preflight NodePort capacity (warning only)
+    5. Apply rendered manifests via ``kubectl apply -f -`` (this
+       creates the bin-manager namespace and the voipbin-secret with
+       empty SSL_*_BASE64 fields, plus 4 LoadBalancer Services in
+       Pending state pending the cert).
+    6. Bootstrap voipbin-tls + patch voipbin-secret with SSL_CERT/
+       PRIVKEY base64 (idempotent + atomic-pair contract; see
+       scripts/tls_bootstrap.py). Apply happens BEFORE bootstrap so
+       the Secret exists for the patch step.
+    7. Rolling-restart the Pods that consume the patched cert so the
+       new SSL env values take effect.
     """
+    from scripts.preflight import (
+        check_loadbalancer_addresses,
+        check_nodeport_availability,
+    )
+    from scripts.tls_bootstrap import BootstrapError, bootstrap_voipbin_tls_secret
+
     if not k8s_get_credentials(config, terraform_outputs):
         return False
+
+    # 2. LoadBalancer ADDRESS preflight (hard fail)
+    tls_strategy = config.get("tls_strategy", "self-signed")
+    if tls_strategy != "byoc":
+        missing = check_loadbalancer_addresses(terraform_outputs)
+        if missing:
+            print_error(
+                "LoadBalancer ADDRESS outputs missing from Terraform "
+                "state: " + ", ".join(missing)
+            )
+            print_error(
+                "Run `terraform apply` in install/terraform/ and ensure "
+                "the static IP resources are created before re-running."
+            )
+            return False
 
     print_step("Rendering manifests with secrets and config values...")
     ok, rendered, _unresolved = _render_manifests(config, terraform_outputs)
     if not ok:
         return False
+
+    # 4. NodePort preflight (non-fatal warning)
+    if not check_nodeport_availability(needed=4):
+        print_warning(
+            "Cluster may have fewer than 4 free NodePort slots in "
+            "30000-32767. LB Service creation may stall. Free unused "
+            "NodePort Services or expand the range."
+        )
 
     print_step("Running: kubectl apply -f - (rendered manifests)")
     result = subprocess.run(
@@ -189,6 +249,40 @@ def k8s_apply(
     if result.stdout:
         _print_apply_summary(result.stdout)
     print_success("Kubernetes manifests applied")
+
+    # 6. TLS bootstrap (after manifest apply so voipbin-secret exists).
+    # When tls_strategy == "byoc" the operator supplies the cert into
+    # voipbin-secret manually; bootstrap detects populated keys and
+    # leaves them untouched (atomic-pair contract case 2).
+    domain = config.get("domain", "")
+    hostnames = [f"{h}.{domain}" if domain else h for h in
+                 ("api", "hook", "admin", "talk", "meet")]
+    try:
+        bootstrap_result = bootstrap_voipbin_tls_secret(hostnames=hostnames)
+    except BootstrapError as exc:
+        print_error(f"TLS bootstrap failed: {exc}")
+        return False
+    except Exception as exc:  # noqa: BLE001 — surface unexpected errors
+        print_error(f"TLS bootstrap raised unexpected error: {exc}")
+        return False
+
+    # 7. If we patched the Secret, restart consumers so they pick up
+    # the new env values. (Pods started by step 5 may have come up
+    # with empty SSL env vars — TLS listener would have failed.)
+    if bootstrap_result.voipbin_secret_action == "patched":
+        print_step("Rolling-restart api-manager and hook-manager to pick up new TLS env...")
+        for deploy in ("api-manager", "hook-manager"):
+            r = subprocess.run(
+                ["kubectl", "-n", "bin-manager", "rollout", "restart", f"deployment/{deploy}"],
+                capture_output=True, text=True, timeout=60,
+            )
+            if r.returncode != 0:
+                # Deployment may not exist yet in some unusual states;
+                # warn but don't fail the whole apply.
+                print_warning(
+                    f"rollout restart {deploy} returned non-zero: {r.stderr.strip()}"
+                )
+
     return True
 
 

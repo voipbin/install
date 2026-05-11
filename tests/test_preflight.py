@@ -171,3 +171,75 @@ class TestCheckStaticIpQuota:
         payload = {"quotas": [{"metric": "CPUS", "limit": 100, "usage": 10}]}
         mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(payload), stderr="")
         assert check_static_ip_quota("proj", "us-central1") is False
+
+
+class TestCheckNodeportAvailability:
+    """check_nodeport_availability counts free NodePort slots via kubectl."""
+
+    @patch("scripts.preflight.run_cmd")
+    def test_sufficient_capacity(self, mock_run):
+        from scripts.preflight import check_nodeport_availability
+        payload = {"items": [
+            {"spec": {"ports": [{"nodePort": 30001}]}},
+            {"spec": {"ports": [{"nodePort": 30002}]}},
+        ]}
+        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(payload), stderr="")
+        # Default range 30000-32767 = 2768; 2 used => plenty
+        assert check_nodeport_availability(needed=4) is True
+
+    @patch("scripts.preflight.run_cmd")
+    def test_exact_capacity(self, mock_run):
+        from scripts.preflight import check_nodeport_availability
+        # Fill 2764 of 2768 slots -> 4 free
+        payload = {"items": [
+            {"spec": {"ports": [{"nodePort": p} for p in range(30000, 30000 + 2764)]}},
+        ]}
+        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(payload), stderr="")
+        assert check_nodeport_availability(needed=4) is True
+        assert check_nodeport_availability(needed=5) is False
+
+    @patch("scripts.preflight.run_cmd")
+    def test_kubectl_error_returns_false(self, mock_run):
+        from scripts.preflight import check_nodeport_availability
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="connection refused")
+        assert check_nodeport_availability(needed=4) is False
+
+    @patch("scripts.preflight.run_cmd")
+    def test_malformed_json_returns_false(self, mock_run):
+        from scripts.preflight import check_nodeport_availability
+        mock_run.return_value = MagicMock(returncode=0, stdout="{not-json", stderr="")
+        assert check_nodeport_availability(needed=4) is False
+
+
+class TestCheckLoadbalancerAddresses:
+    """check_loadbalancer_addresses returns the empty/missing ADDRESS outputs."""
+
+    def test_all_populated(self):
+        from scripts.preflight import check_loadbalancer_addresses
+        outputs = {
+            "api_manager_static_ip_address": "1.2.3.4",
+            "admin_static_ip_address": "1.2.3.5",
+            "talk_static_ip_address": "1.2.3.6",
+            "meet_static_ip_address": "1.2.3.7",
+            "hook_manager_static_ip_address": "1.2.3.8",
+        }
+        assert check_loadbalancer_addresses(outputs) == []
+
+    def test_some_missing(self):
+        from scripts.preflight import check_loadbalancer_addresses
+        outputs = {
+            "api_manager_static_ip_address": "1.2.3.4",
+            "admin_static_ip_address": "",
+            "talk_static_ip_address": "   ",
+        }
+        missing = check_loadbalancer_addresses(outputs)
+        assert "admin_static_ip_address" in missing
+        assert "talk_static_ip_address" in missing
+        assert "meet_static_ip_address" in missing
+        assert "api_manager_static_ip_address" not in missing
+        # hook is not required in PR #3a
+        assert "hook_manager_static_ip_address" not in missing
+
+    def test_all_missing(self):
+        from scripts.preflight import check_loadbalancer_addresses
+        assert len(check_loadbalancer_addresses({})) == 4
