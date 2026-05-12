@@ -18,16 +18,24 @@ K8S_DIR = INSTALLER_DIR / "k8s"
 
 # PR-R: Canonical (namespace, service, output-key) tuples for the 5 k8s
 # LoadBalancer Services whose externalIPs Kamailio's env.j2 consumes.
-# Note. asterisk-call has separate TCP and UDP Services with DISTINCT
-# internal LB IPs (live-verified). Kamailio's env.j2 has one slot
-# (ASTERISK_CALL_LB_ADDR); SIP dispatch uses UDP, so we harvest the UDP IP.
-# The TCP IP is allocated by GCP but currently unused by Kamailio.
+# Note. asterisk-{call,registrar,conference} each have separate TCP and UDP
+# Services with DISTINCT internal LB IPs (live-verified on dogfood
+# voipbin-install-dev cluster, May 2026). Kamailio's env.j2 has one slot per
+# component (ASTERISK_*_LB_ADDR); SIP dispatch uses UDP, so we harvest the
+# UDP variant for each. The TCP IPs are allocated by GCP but currently
+# unused by Kamailio.
+#
+# Service-name suffixes (-tcp / -udp) were added to the asterisk Helm
+# charts as part of the protocol split. PR-T1 brought _LB_SERVICES into
+# parity with the live chart after a smoke uncovered drift: PR-R initially
+# encoded asterisk-{registrar,conference} without the -udp suffix and
+# harvest_loadbalancer_ips() polled non-existent Services until timeout.
 _LB_SERVICES: list[tuple[str, str, str]] = [
     ("infrastructure", "redis", "redis_lb_ip"),
     ("infrastructure", "rabbitmq", "rabbitmq_lb_ip"),
     ("voip", "asterisk-call-udp", "asterisk_call_lb_ip"),
-    ("voip", "asterisk-registrar", "asterisk_registrar_lb_ip"),
-    ("voip", "asterisk-conference", "asterisk_conference_lb_ip"),
+    ("voip", "asterisk-registrar-udp", "asterisk_registrar_lb_ip"),
+    ("voip", "asterisk-conference-udp", "asterisk_conference_lb_ip"),
 ]
 
 

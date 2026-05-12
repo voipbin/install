@@ -122,8 +122,8 @@ class TestHarvestLoadbalancerIps:
             ("infrastructure", "redis"): "10.99.0.5",
             ("infrastructure", "rabbitmq"): "10.99.0.6",
             ("voip", "asterisk-call-udp"): "10.99.0.7",
-            ("voip", "asterisk-registrar"): "10.99.0.8",
-            ("voip", "asterisk-conference"): "10.99.0.9",
+            ("voip", "asterisk-registrar-udp"): "10.99.0.8",
+            ("voip", "asterisk-conference-udp"): "10.99.0.9",
         }
         with patch(
             "scripts.k8s._get_service_external_ip",
@@ -164,8 +164,8 @@ class TestHarvestLoadbalancerIps:
         }
         assert warned_set == {
             ("infrastructure", "rabbitmq"),
-            ("voip", "asterisk-registrar"),
-            ("voip", "asterisk-conference"),
+            ("voip", "asterisk-registrar-udp"),
+            ("voip", "asterisk-conference-udp"),
         }
 
     def test_timeout_with_nothing_returns_empty_dict_and_5_warnings(self):
