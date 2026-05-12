@@ -92,6 +92,28 @@ def _build_kamailio_auth_db_url(
     return f"mysql://kamailioro:{encoded}@{mysql_host}:3306/asterisk"
 
 
+def _build_rtpengine_socks(terraform_outputs: dict[str, Any]) -> str:
+    """Return the RTPENGINE_SOCKS string for env.j2 template.
+
+    Format. space-separated ``udp:<ip>:22222`` per ng-protocol endpoint.
+    Sourced from terraform output ``rtpengine_external_ips`` (list of
+    strings). Returns ``""`` if the list is missing, empty, or not a list so
+    dev / early-apply flows do not crash; group_vars then keeps Kamailio's
+    existing empty-string fallback. Port 22222 is the rtpengine ng control
+    protocol UDP port (confirmed via the existing kamailio.yml group_vars
+    comment and the voip-rtpengine Helm chart).
+    """
+    ips = terraform_outputs.get("rtpengine_external_ips", []) or []
+    if not isinstance(ips, list):
+        return ""
+    parts = [
+        f"udp:{ip}:22222"
+        for ip in ips
+        if isinstance(ip, str) and ip.strip()
+    ]
+    return " ".join(parts)
+
+
 def _write_extra_vars(
     config: InstallerConfig,
     terraform_outputs: dict[str, Any],
@@ -113,6 +135,10 @@ def _write_extra_vars(
     ansible_vars["kamailio_external_lb_ip"] = terraform_outputs.get(
         "kamailio_external_lb_ip", ""
     )
+    ansible_vars["kamailio_internal_lb_ip"] = terraform_outputs.get(
+        "kamailio_internal_lb_ip", ""
+    )
+    ansible_vars["rtpengine_socks"] = _build_rtpengine_socks(terraform_outputs)
     ansible_vars["kamailio_auth_db_url"] = _build_kamailio_auth_db_url(
         config, terraform_outputs
     )
