@@ -2,9 +2,11 @@
 
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote as _urlquote
 
 from scripts.config import InstallerConfig
 from scripts.display import print_error, print_step, print_success
@@ -50,6 +52,46 @@ def _build_ansible_env() -> dict[str, str]:
     return env
 
 
+# Locked password alphabet from PR-D2a terraform override_special.
+# See docs/operations/cloudsql-credentials.md for rotation notes and
+# what to update when widening the alphabet.
+_KAMAILIORO_URL_ALPHABET_RE = re.compile(r"^[A-Za-z0-9!*+\-._~]+$")
+
+
+def _build_kamailio_auth_db_url(
+    config: InstallerConfig,
+    terraform_outputs: dict[str, Any],
+) -> str:
+    """Return the kamailio_auth_db_url for the env.j2 template.
+
+    Sources the kamailioro password from terraform outputs and the MySQL host
+    from config (populated by terraform_reconcile.py from the
+    cloudsql_mysql_private_ip terraform output). Returns "" when either side
+    is missing so dev / early-apply flows do not crash. Raises RuntimeError
+    if the password contains characters outside the locked URL-safe alphabet
+    so a future alphabet widening is caught loudly. Percent-encodes the
+    password via urllib.parse.quote with safe="!*-._~" so locked-alphabet
+    specials round-trip literally and only "+" is encoded to "%2B"; this
+    avoids ambiguity with MySQL URL parsers that treat "+" as form-encoded
+    space.
+    """
+    raw_password = terraform_outputs.get("cloudsql_mysql_password_kamailioro", "")
+    if raw_password is None:
+        raw_password = ""
+    mysql_host = str(config.get("cloudsql_private_ip", "") or "").strip()
+    if not raw_password or not mysql_host:
+        return ""
+    if not _KAMAILIORO_URL_ALPHABET_RE.match(raw_password):
+        raise RuntimeError(
+            "kamailioro password contains characters outside the locked "
+            "URL-safe alphabet (A-Za-z0-9 + '!*+-._~'). Update terraform "
+            "override_special and the URL escape logic together. "
+            "See docs/operations/cloudsql-credentials.md."
+        )
+    encoded = _urlquote(raw_password, safe="!*-._~")
+    return f"mysql://kamailioro:{encoded}@{mysql_host}:3306/asterisk"
+
+
 def _write_extra_vars(
     config: InstallerConfig,
     terraform_outputs: dict[str, Any],
@@ -70,6 +112,9 @@ def _write_extra_vars(
     )
     ansible_vars["kamailio_external_lb_ip"] = terraform_outputs.get(
         "kamailio_external_lb_ip", ""
+    )
+    ansible_vars["kamailio_auth_db_url"] = _build_kamailio_auth_db_url(
+        config, terraform_outputs
     )
     # Create temp file with restricted permissions (owner-only read/write)
     fd = tempfile.mkstemp(suffix=".json", prefix="voipbin_extra_vars_")
