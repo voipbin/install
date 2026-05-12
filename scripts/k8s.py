@@ -1,7 +1,9 @@
 """Kubernetes operations for VoIPBin installer."""
 
 import json
+import os
 import subprocess
+import time
 from typing import Any
 
 from scripts.config import InstallerConfig
@@ -12,6 +14,87 @@ from scripts.utils import INSTALLER_DIR, run_cmd
 
 
 K8S_DIR = INSTALLER_DIR / "k8s"
+
+
+# PR-R: Canonical (namespace, service, output-key) tuples for the 5 k8s
+# LoadBalancer Services whose externalIPs Kamailio's env.j2 consumes.
+# Note. asterisk-call has separate TCP and UDP Services with DISTINCT
+# internal LB IPs (live-verified). Kamailio's env.j2 has one slot
+# (ASTERISK_CALL_LB_ADDR); SIP dispatch uses UDP, so we harvest the UDP IP.
+# The TCP IP is allocated by GCP but currently unused by Kamailio.
+_LB_SERVICES: list[tuple[str, str, str]] = [
+    ("infrastructure", "redis", "redis_lb_ip"),
+    ("infrastructure", "rabbitmq", "rabbitmq_lb_ip"),
+    ("voip", "asterisk-call-udp", "asterisk_call_lb_ip"),
+    ("voip", "asterisk-registrar", "asterisk_registrar_lb_ip"),
+    ("voip", "asterisk-conference", "asterisk_conference_lb_ip"),
+]
+
+
+def _get_service_external_ip(namespace: str, name: str) -> str:
+    """Run `kubectl get svc <name> -n <ns> -o json` and parse externalIP.
+
+    Returns "" on any failure path (kubectl non-zero, malformed JSON,
+    pending LB with status=null, ingress=[], or ingress[0].ip absent).
+    Never raises so the harvest poll loop is robust to GKE in-flight states.
+    """
+    result = subprocess.run(
+        ["kubectl", "get", "svc", name, "-n", namespace, "-o", "json"],
+        capture_output=True, text=True, timeout=30,
+    )
+    if result.returncode != 0:
+        return ""
+    try:
+        data = json.loads(result.stdout)
+        status = (data or {}).get("status") or {}
+        load_balancer = (status or {}).get("loadBalancer") or {}
+        ingress = (load_balancer or {}).get("ingress") or []
+        if ingress and isinstance(ingress, list):
+            first = ingress[0] or {}
+            ip = first.get("ip", "") if isinstance(first, dict) else ""
+            return ip if isinstance(ip, str) else ""
+    except (json.JSONDecodeError, AttributeError, TypeError, IndexError):
+        pass
+    return ""
+
+
+def harvest_loadbalancer_ips(
+    timeout_seconds: int | None = None,
+    poll_interval: int = 5,
+) -> dict[str, str]:
+    """Poll kubectl until each known LB Service has a non-empty externalIP.
+
+    Returns dict {canonical_key: ip}. Best-effort: missing keys after timeout
+    are simply omitted from the result; a warning is emitted per missing
+    service so the operator knows what to rerun. Timeout default reads
+    VOIPBIN_LB_HARVEST_TIMEOUT_SECONDS env var (default 300s).
+    """
+    if timeout_seconds is None:
+        timeout_seconds = int(
+            os.environ.get("VOIPBIN_LB_HARVEST_TIMEOUT_SECONDS", "300")
+        )
+    deadline = time.monotonic() + timeout_seconds
+    result: dict[str, str] = {}
+    pending = list(_LB_SERVICES)
+    while pending and time.monotonic() < deadline:
+        for entry in list(pending):
+            ns, svc, key = entry
+            ip = _get_service_external_ip(ns, svc)
+            if ip:
+                result[key] = ip
+                pending.remove(entry)
+        if pending and time.monotonic() < deadline:
+            time.sleep(poll_interval)
+    for ns, svc, key in pending:
+        print_warning(
+            f"LB Service {ns}/{svc} did not receive an externalIP within "
+            f"{timeout_seconds}s. Downstream consumers will see empty {key}. "
+            f"Self-diagnose with `kubectl get svc -n {ns} {svc}`; common "
+            f"causes: GCP quota exhausted, subnet purpose mismatch, missing "
+            f"`cloud.google.com/load-balancer-type: Internal` annotation. "
+            f"Rerun via `voipbin-install apply --stage reconcile_k8s_outputs`."
+        )
+    return result
 
 
 def _render_manifests_substitution(text: str, subs: dict) -> str:

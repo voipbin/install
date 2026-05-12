@@ -44,14 +44,16 @@ from scripts.pipeline import (
 
 class TestApplyStagesOrder:
     def test_apply_stages_order(self):
-        """Stages must be: init → imports → apply → outputs → ansible → k8s."""
+        """Stages: init → imports → apply → outputs → k8s → reconcile_k8s → ansible.
+        PR-R reordered k8s_apply + reconcile_k8s_outputs to precede ansible_run."""
         assert APPLY_STAGES == (
             "terraform_init",
             "reconcile_imports",
             "terraform_apply",
             "reconcile_outputs",
-            "ansible_run",
             "k8s_apply",
+            "reconcile_k8s_outputs",
+            "ansible_run",
         )
 
     def test_reconcile_imports_before_apply(self):
@@ -402,12 +404,13 @@ class TestPipelineFlowSkipsCompleted:
         monkeypatch.setattr("scripts.pipeline.STATE_FILE", state_file)
         save_state({
             "stages": {
-                "terraform_init":     "complete",
-                "reconcile_imports":  "complete",
-                "terraform_apply":    "complete",
-                "reconcile_outputs":  "pending",
-                "ansible_run":        "pending",
-                "k8s_apply":          "pending",
+                "terraform_init":          "complete",
+                "reconcile_imports":       "complete",
+                "terraform_apply":         "complete",
+                "reconcile_outputs":       "pending",
+                "k8s_apply":               "pending",
+                "reconcile_k8s_outputs":   "pending",
+                "ansible_run":             "pending",
             },
         })
 
@@ -429,7 +432,12 @@ class TestPipelineFlowSkipsCompleted:
         ok = run_pipeline(config)
         assert ok is True
         # Only the not-yet-complete stages should have been executed.
-        assert called == ["reconcile_outputs", "ansible_run", "k8s_apply"]
+        assert called == [
+            "reconcile_outputs",
+            "k8s_apply",
+            "reconcile_k8s_outputs",
+            "ansible_run",
+        ]
 
 
 # ---------------------------------------------------------------------------

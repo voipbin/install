@@ -100,13 +100,16 @@ class TestCheckpointSaveLoad:
 
 class TestStageOrdering:
     def test_apply_stages_order(self):
+        # PR-R reordered: k8s_apply + reconcile_k8s_outputs now precede ansible_run
+        # so kamailio's .env can be rendered with harvested k8s LB IPs.
         expected = (
             "terraform_init",
             "reconcile_imports",
             "terraform_apply",
             "reconcile_outputs",
-            "ansible_run",
             "k8s_apply",
+            "reconcile_k8s_outputs",
+            "ansible_run",
         )
         assert APPLY_STAGES == expected
 

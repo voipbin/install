@@ -32,14 +32,17 @@ from scripts.utils import INSTALLER_DIR
 
 STATE_FILE = INSTALLER_DIR / ".voipbin-state.yaml"
 
-# Ordered stages for apply
+# Ordered stages for apply (PR-R: k8s_apply + reconcile_k8s_outputs now run
+# BEFORE ansible_run so kamailio's `.env` can be rendered with k8s LB IPs
+# allocated by k8s Services of type=LoadBalancer.)
 APPLY_STAGES = (
     "terraform_init",
     "reconcile_imports",
     "terraform_apply",
     "reconcile_outputs",
-    "ansible_run",
     "k8s_apply",
+    "reconcile_k8s_outputs",
+    "ansible_run",
 )
 # Ordered stages for destroy (reverse)
 DESTROY_STAGES = ("k8s_delete", "ansible_cleanup", "terraform_destroy")
@@ -97,6 +100,30 @@ def _migrate_legacy_reconcile_state(state: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
+def _migrate_pr_r_apply_stages(state: dict[str, Any]) -> dict[str, Any]:
+    """Reset ansible_run to pending if reconcile_k8s_outputs absent from state.
+
+    PR-R reordered ansible_run to AFTER k8s_apply + reconcile_k8s_outputs.
+    Operators with pre-PR-R state.yaml have ansible_run=complete; without
+    this shim, the next apply skips ansible_run entirely and the new k8s
+    LB IPs never reach Kamailio. Idempotent: once reconcile_k8s_outputs
+    is in state.stages, this shim is a no-op.
+    """
+    stages = state.get("stages")
+    if not isinstance(stages, dict):
+        return state  # fresh state, nothing to migrate
+    if "reconcile_k8s_outputs" in stages:
+        return state  # already migrated
+    if stages.get("ansible_run") == "complete":
+        stages["ansible_run"] = "pending"
+        print_warning(
+            "PR-R migration: detected pre-PR-R state.yaml with ansible_run "
+            "marked complete. Resetting to pending so it re-runs after the "
+            "new k8s_apply + reconcile_k8s_outputs stages."
+        )
+    return state
+
+
 def load_state() -> dict[str, Any]:
     """Load deployment state from the checkpoint file."""
     if not STATE_FILE.exists():
@@ -105,7 +132,9 @@ def load_state() -> dict[str, Any]:
         data = yaml.safe_load(f)
     if not isinstance(data, dict):
         return {}
-    return _migrate_legacy_reconcile_state(data)
+    data = _migrate_legacy_reconcile_state(data)
+    data = _migrate_pr_r_apply_stages(data)
+    return data
 
 
 def save_state(state: dict[str, Any]) -> None:
@@ -238,6 +267,38 @@ def _run_k8s_apply(
     return k8s_apply(config, outputs)
 
 
+def _run_reconcile_k8s_outputs(
+    config: InstallerConfig,
+    outputs: dict[str, Any],
+    dry_run: bool,
+    auto_approve: bool,  # unused; uniform signature with other runners
+) -> bool:
+    """Harvest k8s LoadBalancer externalIPs and merge into outputs + persist.
+
+    PR-R: this stage runs AFTER k8s_apply and BEFORE ansible_run. The
+    harvested IPs are merged into the in-memory outputs dict so the very
+    next stage (ansible_run via _write_extra_vars) sees them, and ALSO
+    persisted into state.yaml.k8s_outputs so subsequent --stage ansible_run
+    invocations (separate CLI calls) can rehydrate them.
+    """
+    from scripts.k8s import harvest_loadbalancer_ips
+    if dry_run:
+        print_step("[dim](dry-run) Skipping k8s LB IP harvest[/dim]")
+        return True
+    lb_ips = harvest_loadbalancer_ips()
+    outputs.update(lb_ips)
+    # Persist (MERGE not replace) so a partial re-harvest does not delete
+    # previously good keys (e.g. GCP flake on one Service in a rerun).
+    state = load_state()
+    existing = state.get("k8s_outputs") or {}
+    if not isinstance(existing, dict):
+        existing = {}
+    existing.update(lb_ips)
+    state["k8s_outputs"] = existing
+    save_state(state)
+    return True
+
+
 # Map stage names to runner functions
 STAGE_RUNNERS: dict[
     str,
@@ -247,8 +308,9 @@ STAGE_RUNNERS: dict[
     "reconcile_imports": _run_reconcile_imports,
     "terraform_apply": _run_terraform_apply,
     "reconcile_outputs": _run_reconcile_outputs,
-    "ansible_run": _run_ansible,
     "k8s_apply": _run_k8s_apply,
+    "reconcile_k8s_outputs": _run_reconcile_k8s_outputs,
+    "ansible_run": _run_ansible,
 }
 
 STAGE_LABELS: dict[str, str] = {
@@ -256,8 +318,9 @@ STAGE_LABELS: dict[str, str] = {
     "reconcile_imports": "Terraform Reconcile (Imports)",
     "terraform_apply": "Terraform Apply",
     "reconcile_outputs": "Terraform Reconcile (Outputs)",
-    "ansible_run": "Ansible Playbook",
     "k8s_apply": "Kubernetes Apply",
+    "reconcile_k8s_outputs": "Reconcile K8s LB IPs",
+    "ansible_run": "Ansible Playbook",
 }
 
 
@@ -323,6 +386,15 @@ def run_pipeline(
     tf_outputs: dict[str, Any] = {}
     if stages.get("terraform_apply") == "complete" and "terraform_apply" not in to_run:
         tf_outputs = terraform_output(config)
+
+    # PR-R: rehydrate persisted k8s LB IPs from prior reconcile_k8s_outputs
+    # runs so subsequent --stage ansible_run invocations see them even when
+    # k8s_apply itself isn't being re-run in this CLI call.
+    persisted_k8s = state.get("k8s_outputs") or {}
+    if isinstance(persisted_k8s, dict):
+        for k, v in persisted_k8s.items():
+            if isinstance(k, str) and isinstance(v, str):
+                tf_outputs.setdefault(k, v)
 
     for stage_name in to_run:
         label = STAGE_LABELS.get(stage_name, stage_name)
@@ -392,6 +464,9 @@ def destroy_pipeline(
 
     state["deployment_state"] = "destroyed"
     state["stages"] = {stage: "pending" for stage in APPLY_STAGES}
+    # PR-R: clear persisted k8s LB IPs so a subsequent apply re-harvests
+    # against the rebuilt cluster rather than rehydrating ghosts.
+    state["k8s_outputs"] = {}
     save_state(state)
     clear_state()
     return True
