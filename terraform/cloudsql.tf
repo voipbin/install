@@ -19,8 +19,10 @@ resource "google_sql_database_instance" "voipbin" {
     disk_autoresize   = true
 
     ip_configuration {
-      ipv4_enabled = true
-      ssl_mode = "ENCRYPTED_ONLY"
+      ipv4_enabled       = false
+      private_network    = google_compute_network.voipbin.id
+      ssl_mode           = "ENCRYPTED_ONLY"
+      allocated_ip_range = google_compute_global_address.cloudsql_peering.name
     }
 
     backup_configuration {
@@ -35,7 +37,10 @@ resource "google_sql_database_instance" "voipbin" {
     }
   }
 
-  depends_on = [time_sleep.api_propagation]
+  depends_on = [
+    time_sleep.api_propagation,
+    google_service_networking_connection.voipbin,
+  ]
 }
 
 # Database
@@ -49,16 +54,4 @@ resource "google_sql_user" "voipbin" {
   name     = "voipbin"
   instance = google_sql_database_instance.voipbin.name
   password = random_password.cloudsql_password.result
-}
-
-# Cloud SQL Proxy service account
-resource "google_service_account" "sa_cloudsql_proxy" {
-  account_id   = "sa-${var.env}-cloudsql-proxy"
-  display_name = "Cloud SQL Proxy Service Account"
-}
-
-resource "google_project_iam_member" "sa_cloudsql_proxy_client" {
-  project = var.project_id
-  role    = "roles/cloudsql.client"
-  member  = "serviceAccount:${google_service_account.sa_cloudsql_proxy.email}"
 }

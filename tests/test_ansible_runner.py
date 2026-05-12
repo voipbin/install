@@ -35,21 +35,11 @@ class TestWriteExtraVars:
 
     def test_contains_terraform_outputs(self):
         cfg = self._make_config({"gcp_project_id": "p1"})
-        tf_outputs = {"gke_cluster_name": "cluster-1", "cloudsql_ip": "10.0.0.1"}
+        tf_outputs = {"gke_cluster_name": "cluster-1"}
         path = _write_extra_vars(cfg, tf_outputs)
         try:
             data = json.loads(path.read_text())
             assert data["terraform_outputs"] == tf_outputs
-        finally:
-            path.unlink(missing_ok=True)
-
-    def test_flattens_cloudsql_connection_name(self):
-        cfg = self._make_config({})
-        tf_outputs = {"cloudsql_connection_name": "proj:region:instance"}
-        path = _write_extra_vars(cfg, tf_outputs)
-        try:
-            data = json.loads(path.read_text())
-            assert data["cloudsql_connection_name"] == "proj:region:instance"
         finally:
             path.unlink(missing_ok=True)
 
@@ -69,8 +59,6 @@ class TestWriteExtraVars:
         path = _write_extra_vars(cfg, tf_outputs)
         try:
             data = json.loads(path.read_text())
-            assert data["cloudsql_connection_name"] == ""
-            assert data["cloudsql_ip"] == ""
             assert data["kamailio_internal_ips"] == []
             assert data["rtpengine_external_ips"] == []
             assert data["kamailio_external_lb_ip"] == ""

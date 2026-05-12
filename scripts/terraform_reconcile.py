@@ -4,6 +4,7 @@ Detects GCP resources that exist outside Terraform state and imports them
 before terraform apply runs, making deployments resumable without 409 errors.
 """
 
+import ipaddress
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +34,39 @@ _GCS_BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$")
 
 def _is_valid_bucket_name(v: Any) -> bool:
     return isinstance(v, str) and bool(_GCS_BUCKET_RE.match(v))
+
+
+def _is_valid_ipv4_address(v: Any) -> bool:
+    """Validate an IPv4 address literal.
+
+    Cloud SQL Private IP on Google VPC peering is always IPv4. Rejecting
+    non-IPv4 strings (including the PR #5a sentinel `cloudsql-private.invalid`
+    and PR-A empty scaffolding) early prevents bad values from reaching
+    config.yaml.
+    """
+    if not isinstance(v, str) or not v:
+        return False
+    try:
+        ipaddress.IPv4Address(v)
+        return True
+    except (ValueError, ipaddress.AddressValueError):
+        return False
+
+
+def _is_valid_ipv4_cidr(v: Any) -> bool:
+    """Validate an IPv4 CIDR (e.g. ``10.126.80.0/20``).
+
+    Requires an explicit prefix length. Rejects bare addresses and IPv6.
+    """
+    if not isinstance(v, str) or not v:
+        return False
+    if "/" not in v:
+        return False
+    try:
+        ipaddress.IPv4Network(v, strict=False)
+        return True
+    except (ValueError, ipaddress.AddressValueError, ipaddress.NetmaskValueError):
+        return False
 
 
 def check_exists_in_gcp(check_cmd: list[str]) -> tuple[bool, bool]:
@@ -494,6 +528,16 @@ FIELD_MAP: list[TfOutputFieldMapping] = [
         tf_key="tmp_bucket_name",
         cfg_key="tmp_bucket",
         validator=_is_valid_bucket_name,
+    ),
+    TfOutputFieldMapping(
+        tf_key="cloudsql_mysql_private_ip",
+        cfg_key="cloudsql_private_ip",
+        validator=_is_valid_ipv4_address,
+    ),
+    TfOutputFieldMapping(
+        tf_key="cloudsql_peering_range_cidr",
+        cfg_key="cloudsql_private_ip_cidr",
+        validator=_is_valid_ipv4_cidr,
     ),
 ]
 
