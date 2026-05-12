@@ -187,31 +187,30 @@ class TestHarvestLoadbalancerIps:
 
     def test_env_var_timeout_honored_when_none(self):
         """VOIPBIN_LB_HARVEST_TIMEOUT_SECONDS env var is read when
-        timeout_seconds=None. We patch time to capture the deadline."""
-        captured_deadlines = []
-
-        # time.monotonic is called once for deadline + per iteration for the
-        # while-condition check. Return increasing values so the loop exits.
-        clock = iter([0.0, 1000.0])
-
-        def fake_monotonic():
-            val = next(clock, 1000.0)
-            captured_deadlines.append(val)
-            return val
-
+        timeout_seconds=None. We assert the env value flows through by
+        checking the warning string includes the env-var-derived seconds
+        (the helper's warning format string contains `within {timeout_seconds}s`)."""
+        # Patch time.monotonic so the deadline check exits immediately
+        # while still letting the env var actually flow into the timeout
+        # variable used in the warning format string. Calls: (1) initial
+        # deadline = monotonic() + env_value, (2) while-condition check
+        # reads a value that exceeds the deadline → exit.
+        clock_values = iter([0.0] + [1e9] * 20)
         with patch.dict(os.environ, {"VOIPBIN_LB_HARVEST_TIMEOUT_SECONDS": "42"}):
             with patch("scripts.k8s._get_service_external_ip", return_value=""):
-                with patch("scripts.k8s.time.monotonic", side_effect=fake_monotonic):
-                    with patch("scripts.k8s.time.sleep"), patch(
-                        "scripts.k8s.print_warning"
-                    ):
-                        out = harvest_loadbalancer_ips(timeout_seconds=None)
-        # The first captured monotonic call is the deadline calc;
-        # deadline = 0.0 + 42 = 42. Then the while-condition reads 1000 > 42 → exits.
-        # We cannot intercept the addition directly, so we assert the env value
-        # was actually consumed: with timeout_seconds=42, the warning message
-        # for missing services must include "42s".
+                with patch(
+                    "scripts.k8s.time.monotonic",
+                    side_effect=lambda: next(clock_values, 1e9),
+                ), patch("scripts.k8s.time.sleep"), patch(
+                    "scripts.k8s.print_warning"
+                ) as warn:
+                    out = harvest_loadbalancer_ips(timeout_seconds=None)
         assert out == {}
+        # The env-var value must appear in at least one warning string.
+        # Without env-var honoring, "300s" would appear instead.
+        warning_messages = [call.args[0] for call in warn.call_args_list]
+        assert any("within 42s" in msg for msg in warning_messages), warning_messages
+        assert not any("within 300s" in msg for msg in warning_messages), warning_messages
 
 
 # ----- TestRunReconcileK8sOutputsRunner -----------------------------------
