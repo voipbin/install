@@ -103,7 +103,7 @@ class TestInstallerConfig:
     def test_to_terraform_vars(self, tmp_path):
         cfg = _make_config(tmp_path)
         tf_vars = cfg.to_terraform_vars()
-        assert tf_vars["projectid"] == "test-project-123"
+        assert tf_vars["project_id"] == "test-project-123"
         assert tf_vars["region"] == "us-central1"
         assert tf_vars["domain"] == "voipbin.example.com"
 
