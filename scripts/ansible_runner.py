@@ -15,6 +15,40 @@ ANSIBLE_DIR = INSTALLER_DIR / "ansible"
 PLAYBOOK_SITE = ANSIBLE_DIR / "playbooks" / "site.yml"
 INVENTORY_SCRIPT = ANSIBLE_DIR / "inventory" / "gcp_inventory.py"
 
+# Ansible config-related env vars that operators may have exported from their
+# shell profile, CI runner, or direnv. Each one can silently override our
+# repo-shipped ansible/ansible.cfg and re-introduce role/inventory/roles_path
+# resolution bugs (see GAP-39). We pin ANSIBLE_CONFIG and strip the rest so
+# the playbook always loads OUR config.
+_ANSIBLE_OVERRIDE_VARS = (
+    "ANSIBLE_ROLES_PATH",
+    "ANSIBLE_INVENTORY",
+    "ANSIBLE_COLLECTIONS_PATH",
+    "ANSIBLE_COLLECTIONS_PATHS",
+    "ANSIBLE_LIBRARY",
+    "ANSIBLE_ACTION_PLUGINS",
+    "ANSIBLE_CALLBACK_PLUGINS",
+    "ANSIBLE_FILTER_PLUGINS",
+)
+
+
+def _build_ansible_env() -> dict[str, str]:
+    """Return an environment dict that forces our ansible.cfg to win.
+
+    Ansible config precedence is:
+        ANSIBLE_CONFIG (env) > ./ansible.cfg > ~/.ansible.cfg > /etc/ansible/ansible.cfg
+
+    To guarantee deterministic behavior across operator environments, we:
+      1. Pin ANSIBLE_CONFIG to the repo's ansible/ansible.cfg.
+      2. Strip ANSIBLE_ROLES_PATH and similar overrides so the values from
+         our config are not preempted by env vars.
+    """
+    env = os.environ.copy()
+    env["ANSIBLE_CONFIG"] = str(ANSIBLE_DIR / "ansible.cfg")
+    for var in _ANSIBLE_OVERRIDE_VARS:
+        env.pop(var, None)
+    return env
+
 
 def _write_extra_vars(
     config: InstallerConfig,
@@ -62,7 +96,14 @@ def ansible_run(
             "-e", f"gcp_zone={zone}",
         ]
         print_step("Running: ansible-playbook site.yml")
-        result = run_cmd(cmd, capture=False, timeout=1800)
+        # cwd=ANSIBLE_DIR loads ansible/ansible.cfg via the ./ansible.cfg
+        # precedence rule, and env pins ANSIBLE_CONFIG + strips operator
+        # overrides so role/inventory resolution is deterministic regardless
+        # of caller environment (GAP-39 hardening).
+        result = run_cmd(
+            cmd, capture=False, timeout=1800,
+            cwd=ANSIBLE_DIR, env=_build_ansible_env(),
+        )
         if result.returncode != 0:
             print_error("Ansible playbook failed")
             return False
@@ -90,7 +131,10 @@ def ansible_check(
             "--check", "--diff",
         ]
         print_step("Running: ansible-playbook --check (dry run)")
-        result = run_cmd(cmd, capture=False, timeout=600)
+        result = run_cmd(
+            cmd, capture=False, timeout=600,
+            cwd=ANSIBLE_DIR, env=_build_ansible_env(),
+        )
         if result.returncode != 0:
             print_error("Ansible check failed")
             return False
