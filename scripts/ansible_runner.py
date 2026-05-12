@@ -138,6 +138,36 @@ def _write_extra_vars(
     ansible_vars["kamailio_internal_lb_ip"] = terraform_outputs.get(
         "kamailio_internal_lb_ip", ""
     )
+    # PR-T: Flatten k8s LoadBalancer Service externalIPs (harvested by
+    # reconcile_k8s_outputs stage and merged/rehydrated into terraform_outputs
+    # by run_pipeline) so the Kamailio env.j2 template can consume them as
+    # top-level Ansible vars. Each `.get(..., "")` default keeps dev / early-
+    # apply / dry-run flows from crashing when the harvest stage has not
+    # populated a given key yet; group_vars/kamailio.yml then supplies any
+    # role-level fallback. Keys must match scripts.k8s._LB_SERVICES tuple-3
+    # output-key column exactly. drift will silently empty env.j2 slots and
+    # CrashLoop Kamailio. tests/test_pr_t_ansible_k8s_lb_flat_vars.py pins
+    # the contract.
+    #
+    # Note on `or ""` coercion: `.get(key, "")` only fires on MISSING key.
+    # An explicit `None` in terraform_outputs (e.g. a YAML `~` from a
+    # hand-edited state.yaml) would slip through and Jinja2 in env.j2 has no
+    # `default('')` filter on these LB IP slots — `REDIS_URL=...@None:6379`
+    # would render literally. The trailing `or ""` collapses both missing-
+    # and None-valued cases to empty string before they reach Ansible.
+    ansible_vars["redis_lb_ip"] = terraform_outputs.get("redis_lb_ip", "") or ""
+    ansible_vars["rabbitmq_lb_ip"] = (
+        terraform_outputs.get("rabbitmq_lb_ip", "") or ""
+    )
+    ansible_vars["asterisk_call_lb_ip"] = (
+        terraform_outputs.get("asterisk_call_lb_ip", "") or ""
+    )
+    ansible_vars["asterisk_registrar_lb_ip"] = (
+        terraform_outputs.get("asterisk_registrar_lb_ip", "") or ""
+    )
+    ansible_vars["asterisk_conference_lb_ip"] = (
+        terraform_outputs.get("asterisk_conference_lb_ip", "") or ""
+    )
     ansible_vars["rtpengine_socks"] = _build_rtpengine_socks(terraform_outputs)
     ansible_vars["kamailio_auth_db_url"] = _build_kamailio_auth_db_url(
         config, terraform_outputs
