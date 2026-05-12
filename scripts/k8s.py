@@ -14,6 +14,19 @@ from scripts.utils import INSTALLER_DIR, run_cmd
 K8S_DIR = INSTALLER_DIR / "k8s"
 
 
+def _render_manifests_substitution(text: str, subs: dict) -> str:
+    """Public-test entry point: mirrors `_render_manifests` substitution loop.
+
+    Imported by PR-D2b tests to drive the real production sort/replace logic.
+    Sort longest-first so that nested placeholders (e.g. a DSN containing
+    both an IP and a password placeholder, or two placeholders sharing a
+    prefix like `*_PRIVATE_IP` vs `*_PRIVATE_IP_CIDR`) resolve correctly.
+    """
+    for token in sorted(subs, key=len, reverse=True):
+        text = text.replace(token, str(subs[token]))
+    return text
+
+
 def _build_substitution_map(
     config: InstallerConfig,
     terraform_outputs: dict[str, Any],
@@ -61,10 +74,36 @@ def _build_substitution_map(
         "PLACEHOLDER_KAMAILIO_INTERNAL_LB_ADDRESS": kamailio_lb_address
             or subs.get("PLACEHOLDER_KAMAILIO_INTERNAL_LB_ADDRESS", ""),
         "PLACEHOLDER_KAMAILIO_INTERNAL_LB_NAME": kamailio_lb_name,
-        # Cloud SQL private IP (operator-supplied via config.yaml). PR #5b
-        # will source these from Terraform outputs.
+        # Cloud SQL private IPs. PR-D2a/D2b:
+        # - `PLACEHOLDER_CLOUDSQL_PRIVATE_IP[_CIDR]` retained as MySQL alias
+        #   for k8s/voip/secret.yaml and k8s/network-policies/*.
+        # - `PLACEHOLDER_CLOUDSQL_MYSQL_PRIVATE_IP` is the new canonical key
+        #   consumed by k8s/backend/secret.yaml DSN strings (PR-D2b rewrite).
+        # - `PLACEHOLDER_CLOUDSQL_POSTGRES_PRIVATE_IP` consumed by the
+        #   DATABASE_DSN_POSTGRES line.
         "PLACEHOLDER_CLOUDSQL_PRIVATE_IP": cloudsql_private_ip,
         "PLACEHOLDER_CLOUDSQL_PRIVATE_IP_CIDR": cloudsql_private_ip_cidr,
+        "PLACEHOLDER_CLOUDSQL_MYSQL_PRIVATE_IP": cloudsql_private_ip,
+        "PLACEHOLDER_CLOUDSQL_POSTGRES_PRIVATE_IP": config.get(
+            "cloudsql_postgres_private_ip", ""
+        ),
+        # PR-D2b: Cloud SQL application user passwords. Sourced from terraform
+        # outputs (sensitive=true on the terraform side).
+        "PLACEHOLDER_DSN_PASSWORD_MYSQL_BIN_MANAGER": terraform_outputs.get(
+            "cloudsql_mysql_password_bin_manager", ""
+        ),
+        "PLACEHOLDER_DSN_PASSWORD_MYSQL_ASTERISK": terraform_outputs.get(
+            "cloudsql_mysql_password_asterisk", ""
+        ),
+        "PLACEHOLDER_DSN_PASSWORD_MYSQL_CALL_MANAGER": terraform_outputs.get(
+            "cloudsql_mysql_password_call_manager", ""
+        ),
+        "PLACEHOLDER_DSN_PASSWORD_MYSQL_KAMAILIORO": terraform_outputs.get(
+            "cloudsql_mysql_password_kamailioro", ""
+        ),
+        "PLACEHOLDER_DSN_PASSWORD_POSTGRES_BIN_MANAGER": terraform_outputs.get(
+            "cloudsql_postgres_password_bin_manager", ""
+        ),
         # Terraform outputs.
         # RabbitMQ broker bootstrap credentials. Default user/pass is
         # `guest`/`guest` to match production. Operator may override via
@@ -146,9 +185,9 @@ def _render_manifests(
         return False, "", 0
     rendered = result.stdout
 
-    # 4. Substitute — process longest tokens first to avoid partial matches
-    for token in sorted(subs, key=len, reverse=True):
-        rendered = rendered.replace(token, subs[token])
+    # 4. Substitute — delegate to _render_manifests_substitution (single
+    # source of truth, tested directly in PR-D2b).
+    rendered = _render_manifests_substitution(rendered, subs)
 
     # 5. Warn about any remaining placeholders
     remaining = [
