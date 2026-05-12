@@ -75,7 +75,9 @@ class TestEnsureStateBucket:
         assert "--project=voipbin-install-dev" in create_args
         assert "--location=us-central1" in create_args
         assert "--uniform-bucket-level-access" in create_args
-        assert "--public-access-prevention=enforced" in create_args
+        assert "--public-access-prevention" in create_args
+        # Boolean flag in gcloud 472+ — must not be paired with a value.
+        assert "--public-access-prevention=enforced" not in create_args
 
     def test_enables_versioning_after_create(self):
         cfg = _make_config()
