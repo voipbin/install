@@ -116,25 +116,10 @@ def run_pre_apply_checks(
         if not refreshed:
             return False
 
-    # Check 1.5: cloudsql_private_ip operator-supplied (always runs).
-    # Fail fast before any manifest is rendered so the friendly error
-    # in scripts/preflight.py surfaces instead of a cryptic kubectl
-    # validation failure later.
-    from scripts.preflight import (
-        PreflightError,
-        check_cloudsql_private_ip,
-        warn_if_cloudsql_proxy_deployed,
-    )
-
-    try:
-        check_cloudsql_private_ip(config)
-    except PreflightError as exc:
-        print_error(str(exc))
-        return False
-
-    # Best-effort: warn (don't block) if the obsolete cloudsql-proxy
-    # Deployment is still present in cluster from a pre-PR#5a install.
-    warn_if_cloudsql_proxy_deployed()
+    # PR-E: cloudsql_private_ip preflight relocated to scripts/pipeline.py::_run_k8s_apply
+    # (runs AFTER reconcile_outputs auto-populates the field from Terraform output).
+    # Running it here would reject the sentinel before terraform_apply ever ran,
+    # making fresh install impossible.
 
     # Timestamp-based skip for checks 2-4
     if only_stage is None:

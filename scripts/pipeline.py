@@ -199,6 +199,16 @@ def _run_k8s_apply(
     dry_run: bool,
     auto_approve: bool,
 ) -> bool:
+    # PR-E: cloudsql_private_ip preflight runs HERE (after reconcile_outputs
+    # has had a chance to populate the field from Terraform output), and
+    # BEFORE manifests are rendered so a clean error surfaces instead of a
+    # cryptic kubectl validation failure later.
+    from scripts.preflight import PreflightError, check_cloudsql_private_ip
+    try:
+        check_cloudsql_private_ip(config)
+    except PreflightError as exc:
+        print_error(str(exc))
+        return False
     if dry_run:
         return k8s_dry_run(config, outputs)
     return k8s_apply(config, outputs)
