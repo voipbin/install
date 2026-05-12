@@ -14,7 +14,7 @@ from rich.table import Table
 
 from scripts.config import InstallerConfig
 from scripts.display import confirm, console, print_error, print_step, print_success, print_warning
-from scripts.state_bucket import state_bucket_name
+from scripts.state_bucket import DEFAULT_ENV, state_bucket_name
 from scripts.terraform import TERRAFORM_DIR, terraform_state_list
 from scripts.utils import _validate_cmd_arg, run_cmd
 
@@ -488,17 +488,17 @@ def build_registry(config: InstallerConfig) -> list[dict[str, Any]]:
         "tf_address":   "google_storage_bucket.recordings",
         "description":  "GCS Recordings Bucket",
         "gcloud_check": ["gcloud", "storage", "buckets", "describe",
-                         f"gs://{config.get('env')}-voipbin-recordings",
+                         f"gs://{config.get('env') or DEFAULT_ENV}-voipbin-recordings",
                          f"--project={project}"],
-        "import_id":    f"{config.get('env')}-voipbin-recordings",
+        "import_id":    f"{config.get('env') or DEFAULT_ENV}-voipbin-recordings",
     })
     entries.append({
         "tf_address":   "google_storage_bucket.tmp",
         "description":  "GCS Tmp Bucket",
         "gcloud_check": ["gcloud", "storage", "buckets", "describe",
-                         f"gs://{config.get('env')}-voipbin-tmp",
+                         f"gs://{config.get('env') or DEFAULT_ENV}-voipbin-tmp",
                          f"--project={project}"],
-        "import_id":    f"{config.get('env')}-voipbin-tmp",
+        "import_id":    f"{config.get('env') or DEFAULT_ENV}-voipbin-tmp",
     })
 
     # -- Cloud SQL (instance first, then database and user) -------------

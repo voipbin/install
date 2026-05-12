@@ -305,22 +305,66 @@ def test_registry_validator_rejects_unsubstituted_template() -> None:
 
 
 def test_required_keys_missing_raises_with_hint() -> None:
-    """PR-L D4.3 — InstallerConfig missing `env` → build_registry hard-fails."""
+    """PR-L D4.3 / PR-L2 — InstallerConfig missing `gcp_project_id` → build_registry hard-fails.
+
+    PR-L2 narrowed RECONCILE_REQUIRED_KEYS to drop `env` (env has a safe
+    terraform-side default `voipbin`). gcp_project_id remains required.
+    """
     from scripts.config import InstallerConfig
     from scripts.terraform_reconcile import ReconcileRegistryError, build_registry
 
     cfg = InstallerConfig()
     cfg.set_many({
-        "gcp_project_id": "x",
+        # NOTE: no `gcp_project_id` — that's the precondition.
         "region": "y",
         "zone": "y-a",
-        # NOTE: no `env` — that's the precondition.
+        "env": "test",
     })
     with pytest.raises(ReconcileRegistryError) as excinfo:
         build_registry(cfg)
     msg = str(excinfo.value)
-    assert "env" in msg
+    assert "gcp_project_id" in msg
     assert "init --reconfigure" in msg
+
+
+def test_build_registry_without_env_uses_default_no_none_literal() -> None:
+    """PR-L2 — config without `env` key must build a clean registry.
+
+    `env` has a safe default ("voipbin") matching terraform/variables.tf.
+    Building a registry from a config that omits `env` must NOT leak "None"
+    literals into recordings/tmp bucket names (the original GAP-35 shape),
+    and must pass the PR-L _validate_entry checks.
+    """
+    from scripts.config import InstallerConfig
+    from scripts.terraform_reconcile import build_registry
+
+    cfg = InstallerConfig()
+    cfg.set_many({
+        "gcp_project_id": "voipbin-install-dev",
+        "region": "us-central1",
+        "zone": "us-central1-a",
+        # NOTE: no `env` — must default to "voipbin".
+    })
+    entries = build_registry(cfg)
+    # No registry entry may contain the literal "None" anywhere.
+    for entry in entries:
+        for field in ("tf_address", "import_id"):
+            assert "None" not in entry.get(field, ""), (
+                f"{field} of {entry['tf_address']} leaked 'None': "
+                f"{entry.get(field)!r}"
+            )
+        for tok in entry.get("gcloud_check", []):
+            assert not tok.startswith("None"), (
+                f"gcloud_check token leaked 'None': {tok!r} "
+                f"in entry {entry['tf_address']}"
+            )
+    # Recordings/tmp entries must use the default "voipbin" prefix.
+    recordings = next(e for e in entries
+                      if e["tf_address"] == "google_storage_bucket.recordings")
+    assert recordings["import_id"] == "voipbin-voipbin-recordings"
+    tmp = next(e for e in entries
+               if e["tf_address"] == "google_storage_bucket.tmp")
+    assert tmp["import_id"] == "voipbin-voipbin-tmp"
 
 
 class _ParentCheckConfig:
