@@ -77,6 +77,20 @@ deploys the full Kubernetes workload through a single CLI.
 ```
 
 
+## Pipeline stages
+
+`voipbin-install apply` runs six stages in order:
+
+1. **terraform_init** — initialize Terraform backend + providers.
+2. **reconcile_imports** — detect GCP resources outside Terraform state and import them. Prevents 409 conflicts on resume.
+3. **terraform_apply** — provision/update GCP infrastructure.
+4. **reconcile_outputs** — read Terraform outputs, auto-populate select config.yaml fields (e.g. private IPs).
+5. **ansible_run** — configure VoIP VMs.
+6. **k8s_apply** — deploy Kubernetes workloads.
+
+Run individual stages via `voipbin-install apply --stage <name>`.
+
+
 ## Warnings
 
 **This installer creates real GCP resources that cost money.** Estimated
@@ -289,8 +303,9 @@ self-signed phase). Run the install in stages, inject the Secrets between
 
 # 2. Provision infrastructure (everything before k8s_apply).
 ./voipbin-install apply --stage terraform_init
-./voipbin-install apply --stage terraform_reconcile
+./voipbin-install apply --stage reconcile_imports
 ./voipbin-install apply --stage terraform_apply
+./voipbin-install apply --stage reconcile_outputs
 ./voipbin-install apply --stage ansible_run
 
 # 3. Create both namespaces.

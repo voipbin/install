@@ -1,5 +1,7 @@
 # Terraform Reconcile Stage — Design
 
+> **Superseded by PR-A (2026-05-12)** — the single `terraform_reconcile` stage is now split into `reconcile_imports` (before apply) + `reconcile_outputs` (after apply). See `docs/plans/2026-05-12-pr-a-pipeline-reconcile-split-design.md`.
+
 **Date:** 2026-05-08
 **Status:** Approved
 **Context:** `voipbin-install apply` fails with Terraform 409 "already exists" errors when

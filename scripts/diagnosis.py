@@ -213,7 +213,7 @@ def diagnose_stage_failure(config: InstallerConfig, stage: str) -> list[str]:
         )
 
     # Stage-specific checks
-    if stage in ("terraform_init", "terraform_reconcile", "terraform_apply"):
+    if stage in ("terraform_init", "reconcile_imports", "reconcile_outputs", "terraform_apply"):
         bucket = f"gs://{project_id}-voipbin-tf-state"
         r = run_cmd(["gcloud", "storage", "ls", bucket, f"--project={project_id}"])
         if r.returncode != 0:
@@ -229,7 +229,7 @@ def diagnose_stage_failure(config: InstallerConfig, stage: str) -> list[str]:
                 f"gcloud services enable {' '.join(missing)} --project {project_id}"
             )
 
-        if stage in ("terraform_reconcile", "terraform_apply"):
+        if stage in ("reconcile_imports", "reconcile_outputs", "terraform_apply"):
             for q in check_quotas(project_id, region):
                 if not q.ok:
                     hints.append(

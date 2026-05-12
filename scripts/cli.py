@@ -48,10 +48,12 @@ def init(reconfigure, config_path, skip_api_enable, skip_quota_check, dry_run):
     "--stage",
     type=click.Choice([
         "terraform_init",
-        "terraform_reconcile",
+        "reconcile_imports",
         "terraform_apply",
+        "reconcile_outputs",
         "ansible_run",
         "k8s_apply",
+        "terraform_reconcile",  # deprecated alias — expands to both new stages
     ]),
     default=None,
     help="Run only a specific pipeline stage",

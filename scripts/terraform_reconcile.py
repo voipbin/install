@@ -4,8 +4,9 @@ Detects GCP resources that exist outside Terraform state and imports them
 before terraform apply runs, making deployments resumable without 409 errors.
 """
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from rich.table import Table
 
@@ -17,6 +18,10 @@ from scripts.utils import _validate_cmd_arg, run_cmd
 
 # Covers "NOT FOUND", "NOT_FOUND" (gcloud style), "notfound", "404 Not Found", etc.
 _NOT_FOUND_PHRASES = ("not found", "notfound", "not_found", "does not exist", "404", "no such")
+
+
+def _always_valid(v: Any) -> bool:
+    return True
 
 
 def check_exists_in_gcp(check_cmd: list[str]) -> tuple[bool, bool]:
@@ -316,7 +321,7 @@ def build_registry(config: InstallerConfig) -> list[dict[str, Any]]:
     return entries
 
 
-def reconcile(config: InstallerConfig) -> bool:
+def imports(config: InstallerConfig) -> bool:
     """Detect GCP resources missing from Terraform state and import them.
 
     Returns True if the pipeline may proceed (no conflicts, or all imports
@@ -402,4 +407,55 @@ def reconcile(config: InstallerConfig) -> bool:
             console.print(f"    [dim]Run manually:[/dim] terraform import -var project_id={project_id} {tf_addr} {import_id}{note}")
         return False
 
+    return True
+
+
+# Backward-compatible alias. PR-A renamed `reconcile` → `imports`; the alias
+# keeps existing imports (e.g. `tests/test_terraform_reconcile.py`) working.
+# Bind-time only — monkeypatching `imports` does NOT update `reconcile`.
+reconcile = imports
+
+
+@dataclass(frozen=True)
+class TfOutputFieldMapping:
+    """Mapping from a Terraform output key to a config.yaml field.
+
+    Used by `outputs()` to auto-populate select config slots from
+    `terraform output` after apply. PRs C/D/G append entries; PR-A ships empty.
+    """
+    tf_key: str
+    cfg_key: str
+    validator: Callable[[Any], bool] = _always_valid
+
+
+# PRs C/D/G append entries; PR-A ships empty.
+FIELD_MAP: list[TfOutputFieldMapping] = []
+
+
+def outputs(config: InstallerConfig, tf_outputs: dict[str, Any]) -> bool:
+    """Auto-populate select config.yaml fields from Terraform outputs.
+
+    Runs AFTER `terraform_apply`. Reads `tf_outputs` (already collected by the
+    pipeline) and writes mapped values into `config.yaml`, skipping any field
+    the operator has already set. Returns True on success.
+    """
+    if not FIELD_MAP:
+        print_step("[dim]No outputs to populate (no fields registered yet).[/dim]")
+        return True
+    changed = False
+    for mapping in FIELD_MAP:
+        value = tf_outputs.get(mapping.tf_key)
+        if value is None or value == "":
+            continue
+        if not mapping.validator(value):
+            print_warning(f"Invalid output for {mapping.tf_key}: {value!r}; skipping.")
+            continue
+        if not config.get(mapping.cfg_key):
+            config.set(mapping.cfg_key, value)
+            changed = True
+    if changed:
+        config.save()
+        print_success("Updated config.yaml from Terraform outputs.")
+    else:
+        print_step("[dim]All output-derived config fields already set; no changes.[/dim]")
     return True

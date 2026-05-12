@@ -26,21 +26,76 @@ from scripts.terraform import (
     terraform_output,
     terraform_plan,
 )
-from scripts.terraform_reconcile import reconcile as _terraform_reconcile
+from scripts.terraform_reconcile import imports as _terraform_imports, outputs as _terraform_outputs
 from scripts.utils import INSTALLER_DIR
 
 
 STATE_FILE = INSTALLER_DIR / ".voipbin-state.yaml"
 
 # Ordered stages for apply
-APPLY_STAGES = ("terraform_init", "terraform_reconcile", "terraform_apply", "ansible_run", "k8s_apply")
+APPLY_STAGES = (
+    "terraform_init",
+    "reconcile_imports",
+    "terraform_apply",
+    "reconcile_outputs",
+    "ansible_run",
+    "k8s_apply",
+)
 # Ordered stages for destroy (reverse)
 DESTROY_STAGES = ("k8s_delete", "ansible_cleanup", "terraform_destroy")
+
+
+# Deprecation message shown when --stage terraform_reconcile is used.
+DEPRECATION_MESSAGE_RECONCILE = (
+    "⚠  --stage terraform_reconcile is deprecated.\n"
+    "   The reconcile stage was split into two:\n"
+    "     • reconcile_imports  (BEFORE terraform_apply — imports drifted GCP resources)\n"
+    "     • reconcile_outputs  (AFTER  terraform_apply — auto-populates config.yaml)\n"
+    "   Running both for backward compatibility. This shim is scheduled for\n"
+    "   removal in install-redesign PR-J. Update scripts to use the new names."
+)
 
 
 # ---------------------------------------------------------------------------
 # Checkpoint persistence
 # ---------------------------------------------------------------------------
+
+def _migrate_legacy_reconcile_state(state: dict[str, Any]) -> dict[str, Any]:
+    """Migrate legacy `terraform_reconcile` state key to the split stages.
+
+    PR-A split the single `terraform_reconcile` stage into `reconcile_imports`
+    (before apply) and `reconcile_outputs` (after apply). Existing state files
+    may contain the legacy key — expand it per the migration table:
+
+        complete → reconcile_imports: complete, reconcile_outputs: pending
+        failed   → reconcile_imports: failed,   reconcile_outputs: pending
+        running  → reconcile_imports: failed,   reconcile_outputs: pending
+        pending  → reconcile_imports: pending,  reconcile_outputs: pending
+
+    The legacy key is deleted after expansion. If both legacy and new keys are
+    present (operator hand-edit), the new keys take precedence and legacy is
+    dropped. Idempotent — a second call sees no legacy key and is a no-op.
+    Unknown stage keys are preserved as-is.
+    """
+    stages = state.get("stages")
+    if not isinstance(stages, dict):
+        return state
+    if "terraform_reconcile" not in stages:
+        return state
+    legacy = stages.pop("terraform_reconcile")
+    mapping = {
+        "complete": ("complete", "pending"),
+        "failed":   ("failed",   "pending"),
+        "running":  ("failed",   "pending"),
+        "pending":  ("pending",  "pending"),
+    }
+    imports_state, outputs_state = mapping.get(legacy, ("pending", "pending"))
+    # New keys take precedence if already present.
+    stages.setdefault("reconcile_imports", imports_state)
+    stages.setdefault("reconcile_outputs", outputs_state)
+    state["stages"] = stages
+    return state
+
 
 def load_state() -> dict[str, Any]:
     """Load deployment state from the checkpoint file."""
@@ -48,7 +103,9 @@ def load_state() -> dict[str, Any]:
         return {}
     with open(STATE_FILE) as f:
         data = yaml.safe_load(f)
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        return {}
+    return _migrate_legacy_reconcile_state(data)
 
 
 def save_state(state: dict[str, Any]) -> None:
@@ -84,16 +141,28 @@ def _run_terraform_init(
     return terraform_init(config)
 
 
-def _run_terraform_reconcile(
+def _run_reconcile_imports(
     config: InstallerConfig,
     _outputs: dict[str, Any],
     dry_run: bool,
     auto_approve: bool,
 ) -> bool:
     if dry_run:
-        print_step("[dim]Dry run: skipping Terraform reconcile[/dim]")
+        print_step("[dim]Dry run: skipping Terraform reconcile (imports)[/dim]")
         return True
-    return _terraform_reconcile(config)
+    return _terraform_imports(config)
+
+
+def _run_reconcile_outputs(
+    config: InstallerConfig,
+    tf_outputs: dict[str, Any],
+    dry_run: bool,
+    auto_approve: bool,
+) -> bool:
+    if dry_run:
+        print_step("[dim]Dry run: skipping Terraform reconcile (outputs)[/dim]")
+        return True
+    return _terraform_outputs(config, tf_outputs)
 
 
 def _run_terraform_apply(
@@ -141,16 +210,18 @@ STAGE_RUNNERS: dict[
     Callable[[InstallerConfig, dict[str, Any], bool, bool], bool],
 ] = {
     "terraform_init": _run_terraform_init,
-    "terraform_reconcile": _run_terraform_reconcile,
+    "reconcile_imports": _run_reconcile_imports,
     "terraform_apply": _run_terraform_apply,
+    "reconcile_outputs": _run_reconcile_outputs,
     "ansible_run": _run_ansible,
     "k8s_apply": _run_k8s_apply,
 }
 
 STAGE_LABELS: dict[str, str] = {
     "terraform_init": "Terraform Init",
-    "terraform_reconcile": "Terraform Reconcile",
+    "reconcile_imports": "Terraform Reconcile (Imports)",
     "terraform_apply": "Terraform Apply",
+    "reconcile_outputs": "Terraform Reconcile (Outputs)",
     "ansible_run": "Ansible Playbook",
     "k8s_apply": "Kubernetes Apply",
 }
@@ -174,7 +245,10 @@ def run_pipeline(
     stages = dict(state.get("stages", _initial_stages_state()))
 
     # Determine which stages to run
-    if only_stage:
+    if only_stage == "terraform_reconcile":
+        print_warning(DEPRECATION_MESSAGE_RECONCILE)
+        requested = ["reconcile_imports", "reconcile_outputs"]
+    elif only_stage:
         if only_stage not in STAGE_RUNNERS:
             print_error(f"Unknown stage: {only_stage}")
             return False
@@ -189,6 +263,18 @@ def run_pipeline(
             print_step(f"[dim]Skipping {STAGE_LABELS.get(stage_name, stage_name)} (already complete)[/dim]")
             continue
         to_run.append(stage_name)
+
+    # Precondition: reconcile_outputs requires a completed terraform_apply,
+    # since it reads `terraform output`. Reject standalone runs that would
+    # otherwise fail with an opaque empty-outputs error.
+    if (
+        only_stage == "reconcile_outputs"
+        and stages.get("terraform_apply") != "complete"
+    ):
+        print_error(
+            "reconcile_outputs requires terraform_apply to be complete first."
+        )
+        return False
 
     if not to_run:
         print_success("All stages already complete. Nothing to do.")
