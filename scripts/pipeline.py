@@ -150,7 +150,7 @@ def _run_reconcile_imports(
     if dry_run:
         print_step("[dim]Dry run: skipping Terraform reconcile (imports)[/dim]")
         return True
-    return _terraform_imports(config)
+    return _terraform_imports(config, auto_approve=auto_approve)
 
 
 def _run_reconcile_outputs(
