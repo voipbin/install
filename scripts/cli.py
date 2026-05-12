@@ -45,6 +45,11 @@ def init(reconfigure, config_path, skip_api_enable, skip_quota_check, dry_run):
 @click.option("--auto-approve", is_flag=True, help="Skip confirmation prompts")
 @click.option("--dry-run", is_flag=True, help="Show what would be done without making changes")
 @click.option(
+    "--force-destroy-legacy-voipbin",
+    is_flag=True,
+    help="Opt in to destroying the legacy PR-D1 `voipbin` MySQL database during PR-D2 apply",
+)
+@click.option(
     "--stage",
     type=click.Choice([
         "terraform_init",
@@ -58,9 +63,14 @@ def init(reconfigure, config_path, skip_api_enable, skip_quota_check, dry_run):
     default=None,
     help="Run only a specific pipeline stage",
 )
-def apply(auto_approve, dry_run, stage):
+def apply(auto_approve, dry_run, force_destroy_legacy_voipbin, stage):
     """Deploy VoIPBin infrastructure and services."""
-    cmd_apply(auto_approve=auto_approve, dry_run=dry_run, stage=stage)
+    cmd_apply(
+        auto_approve=auto_approve,
+        dry_run=dry_run,
+        stage=stage,
+        force_destroy_legacy_voipbin=force_destroy_legacy_voipbin,
+    )
 
 
 @cli.command()

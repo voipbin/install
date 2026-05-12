@@ -204,17 +204,27 @@ class TestBuildRegistryAllResources:
         assert "google_compute_instance.kamailio[0]" in addresses
         assert "google_compute_instance.kamailio[1]" in addresses
 
-    def test_includes_cloud_sql_instance_database_and_user(self):
+    def test_includes_cloud_sql_instance_and_pr_d2a_dbs_and_users(self):
         addresses = {e["tf_address"] for e in build_registry(self._make_config())}
         assert "google_sql_database_instance.voipbin" in addresses
-        assert "google_sql_database.voipbin" in addresses
-        assert "google_sql_user.voipbin" in addresses
+        # PR-D2a: legacy `voipbin` database and `voipbin` user replaced with
+        # per-app `bin_manager` + `asterisk` databases and the bin-manager,
+        # asterisk, call-manager users. `kamailioro` is intentionally absent.
+        assert "google_sql_database.voipbin_mysql_bin_manager" in addresses
+        assert "google_sql_database.voipbin_mysql_asterisk" in addresses
+        assert "google_sql_user.voipbin_mysql_bin_manager" in addresses
+        assert "google_sql_user.voipbin_mysql_asterisk" in addresses
+        assert "google_sql_user.voipbin_mysql_call_manager" in addresses
+        assert "google_sql_user.voipbin_mysql_kamailioro" not in addresses
+        # Legacy resources are gone from the registry.
+        assert "google_sql_database.voipbin" not in addresses
+        assert "google_sql_user.voipbin" not in addresses
 
     def test_sql_instance_before_database(self):
         entries = build_registry(self._make_config())
         addresses = [e["tf_address"] for e in entries]
         inst_idx = addresses.index("google_sql_database_instance.voipbin")
-        db_idx = addresses.index("google_sql_database.voipbin")
+        db_idx = addresses.index("google_sql_database.voipbin_mysql_bin_manager")
         assert inst_idx < db_idx
 
     def test_includes_gke_cluster_and_node_pool(self):
@@ -250,9 +260,12 @@ class TestBuildRegistryAllResources:
 
     def test_sql_user_import_id_has_correct_format(self):
         entries = build_registry(self._make_config())
-        entry = next(e for e in entries if e["tf_address"] == "google_sql_user.voipbin")
+        entry = next(
+            e for e in entries
+            if e["tf_address"] == "google_sql_user.voipbin_mysql_bin_manager"
+        )
         # Format must be {project}/{instance}/{name}
-        assert entry["import_id"] == "proj-abc/voipbin-mysql/voipbin"
+        assert entry["import_id"] == "proj-abc/voipbin-mysql/bin-manager"
 
 
 class TestReconcile:

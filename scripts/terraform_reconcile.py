@@ -501,7 +501,7 @@ def build_registry(config: InstallerConfig) -> list[dict[str, Any]]:
         "import_id":    f"{config.get('env') or DEFAULT_ENV}-voipbin-tmp",
     })
 
-    # -- Cloud SQL (instance first, then database and user) -------------
+    # -- Cloud SQL MySQL (instance first, then PR-D2a application dbs/users) ---
     entries.append({
         "tf_address":   "google_sql_database_instance.voipbin",
         "description":  "Cloud SQL Instance",
@@ -509,32 +509,59 @@ def build_registry(config: InstallerConfig) -> list[dict[str, Any]]:
                          f"--project={project}"],
         "import_id":    f"projects/{project}/instances/voipbin-mysql",
     })
+    # PR-D2a: MySQL application databases.
     entries.append({
-        "tf_address":   "google_sql_database.voipbin",
-        "description":  "Cloud SQL Database",
-        "gcloud_check": ["gcloud", "sql", "databases", "describe", "voipbin",
+        "tf_address":   "google_sql_database.voipbin_mysql_bin_manager",
+        "description":  "Cloud SQL MySQL bin_manager Database",
+        "gcloud_check": ["gcloud", "sql", "databases", "describe", "bin_manager",
                          "--instance=voipbin-mysql", f"--project={project}"],
-        "import_id":    f"projects/{project}/instances/voipbin-mysql/databases/voipbin",
-        # PR-L (GAP-36): parent instance may not exist on fresh project.
-        # Defer the import instead of marking as failed; terraform_apply
-        # will create both instance and database on this run.
+        "import_id":    f"projects/{project}/instances/voipbin-mysql/databases/bin_manager",
         "parent_check": ["gcloud", "sql", "instances", "describe", "voipbin-mysql",
                          f"--project={project}"],
     })
     entries.append({
-        "tf_address":   "google_sql_user.voipbin",
-        "description":  "Cloud SQL User",
+        "tf_address":   "google_sql_database.voipbin_mysql_asterisk",
+        "description":  "Cloud SQL MySQL asterisk Database",
+        "gcloud_check": ["gcloud", "sql", "databases", "describe", "asterisk",
+                         "--instance=voipbin-mysql", f"--project={project}"],
+        "import_id":    f"projects/{project}/instances/voipbin-mysql/databases/asterisk",
+        "parent_check": ["gcloud", "sql", "instances", "describe", "voipbin-mysql",
+                         f"--project={project}"],
+    })
+    # PR-D2a: MySQL application users. NOTE: kamailioro is INTENTIONALLY absent
+    # from this registry — its host pinning `10.0.0.0/255.0.0.0` contains a
+    # slash, which collides with the provider's import id format
+    # `{project}/{instance}/{host}/{name}` (split-by-slash). `terraform apply`
+    # creates the user on first run; state persists thereafter.
+    entries.append({
+        "tf_address":   "google_sql_user.voipbin_mysql_bin_manager",
+        "description":  "Cloud SQL MySQL bin-manager User",
         "gcloud_check": ["gcloud", "sql", "users", "list", "--instance=voipbin-mysql",
-                         "--filter=name=voipbin", f"--project={project}"],
-        "import_id":    f"{project}/voipbin-mysql/voipbin",
-        # PR-L (GAP-36): same parent as database — Cloud SQL instance.
+                         "--filter=name=bin-manager", f"--project={project}"],
+        "import_id":    f"{project}/voipbin-mysql/bin-manager",
+        "parent_check": ["gcloud", "sql", "instances", "describe", "voipbin-mysql",
+                         f"--project={project}"],
+    })
+    entries.append({
+        "tf_address":   "google_sql_user.voipbin_mysql_asterisk",
+        "description":  "Cloud SQL MySQL asterisk User",
+        "gcloud_check": ["gcloud", "sql", "users", "list", "--instance=voipbin-mysql",
+                         "--filter=name=asterisk", f"--project={project}"],
+        "import_id":    f"{project}/voipbin-mysql/asterisk",
+        "parent_check": ["gcloud", "sql", "instances", "describe", "voipbin-mysql",
+                         f"--project={project}"],
+    })
+    entries.append({
+        "tf_address":   "google_sql_user.voipbin_mysql_call_manager",
+        "description":  "Cloud SQL MySQL call-manager User",
+        "gcloud_check": ["gcloud", "sql", "users", "list", "--instance=voipbin-mysql",
+                         "--filter=name=call-manager", f"--project={project}"],
+        "import_id":    f"{project}/voipbin-mysql/call-manager",
         "parent_check": ["gcloud", "sql", "instances", "describe", "voipbin-mysql",
                          f"--project={project}"],
     })
 
-    # -- Postgres (PR-D1). Instance has no parent within VoIPBin terraform;
-    # the user does, so it gets parent_check pointing at the Postgres instance.
-    # PR-D2 will add per-app databases and users alongside.
+    # -- Postgres (PR-D1 instance & admin user, PR-D2a application db/user) ----
     env_name = config.get("env") or DEFAULT_ENV
     postgres_instance = f"{env_name}-postgres"
     entries.append({
@@ -551,6 +578,25 @@ def build_registry(config: InstallerConfig) -> list[dict[str, Any]]:
                          f"--instance={postgres_instance}",
                          "--filter=name=postgres", f"--project={project}"],
         "import_id":    f"{project}/{postgres_instance}/postgres",
+        "parent_check": ["gcloud", "sql", "instances", "describe", postgres_instance,
+                         f"--project={project}"],
+    })
+    entries.append({
+        "tf_address":   "google_sql_database.voipbin_postgres_bin_manager",
+        "description":  "Cloud SQL Postgres bin_manager Database",
+        "gcloud_check": ["gcloud", "sql", "databases", "describe", "bin_manager",
+                         f"--instance={postgres_instance}", f"--project={project}"],
+        "import_id":    f"projects/{project}/instances/{postgres_instance}/databases/bin_manager",
+        "parent_check": ["gcloud", "sql", "instances", "describe", postgres_instance,
+                         f"--project={project}"],
+    })
+    entries.append({
+        "tf_address":   "google_sql_user.voipbin_postgres_bin_manager",
+        "description":  "Cloud SQL Postgres bin-manager User",
+        "gcloud_check": ["gcloud", "sql", "users", "list",
+                         f"--instance={postgres_instance}",
+                         "--filter=name=bin-manager", f"--project={project}"],
+        "import_id":    f"{project}/{postgres_instance}/bin-manager",
         "parent_check": ["gcloud", "sql", "instances", "describe", postgres_instance,
                          f"--project={project}"],
     })

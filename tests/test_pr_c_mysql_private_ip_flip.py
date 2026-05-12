@@ -75,7 +75,8 @@ def test_cloudsql_mysql_private_only():
         "ipv4_enabled must be false"
     assert "google_compute_network.voipbin.id" in ip_cfg_body, \
         "private_network must reference voipbin VPC"
-    assert re.search(r'ssl_mode\s*=\s*"ENCRYPTED_ONLY"', ip_cfg_body)
+    assert re.search(r'ssl_mode\s*=\s*"ALLOW_UNENCRYPTED_AND_ENCRYPTED"', ip_cfg_body), \
+        "PR-D2a: MySQL ssl_mode loosened to ALLOW_UNENCRYPTED_AND_ENCRYPTED for production parity (see docs/security/cis-deviations.md)"
     assert "google_compute_global_address.cloudsql_peering.name" in ip_cfg_body, \
         "allocated_ip_range must reference PR-B peering range"
 
