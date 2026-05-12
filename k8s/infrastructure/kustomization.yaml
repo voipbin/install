@@ -5,4 +5,3 @@ resources:
   - redis
   - rabbitmq
   - clickhouse
-  - cloudsql-proxy

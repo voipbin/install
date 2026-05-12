@@ -60,23 +60,43 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-to-cloudsql-proxy
+  name: allow-to-cloudsql-private-ip
   namespace: bin-manager
 spec:
+  # Broad rule: all bin-manager pods get port 3306 (MySQL) egress
+  # to the Cloud SQL private IP. Defense-in-depth: port 5432 (Postgres)
+  # is restricted to rag-manager in a separate rule below.
   podSelector: {}
   policyTypes:
     - Egress
   egress:
     - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: infrastructure
-          podSelector:
-            matchLabels:
-              app: cloudsql-proxy
+        - ipBlock:
+            cidr: PLACEHOLDER_CLOUDSQL_PRIVATE_IP_CIDR
       ports:
         - protocol: TCP
           port: 3306
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-rag-manager-to-cloudsql-postgres
+  namespace: bin-manager
+spec:
+  # Narrow rule: only rag-manager pods may reach Cloud SQL on the
+  # Postgres port. Pairs with the broad MySQL rule above.
+  podSelector:
+    matchLabels:
+      app: rag-manager
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: PLACEHOLDER_CLOUDSQL_PRIVATE_IP_CIDR
+      ports:
+        - protocol: TCP
+          port: 5432
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

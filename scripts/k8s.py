@@ -30,6 +30,10 @@ def _build_substitution_map(
     region = config.get("region", "")
     kamailio_lb_address = config.get("kamailio_internal_lb_address", "")
     kamailio_lb_name = config.get("kamailio_internal_lb_name", "kamailio-internal-lb")
+    cloudsql_private_ip = config.get("cloudsql_private_ip", "")
+    cloudsql_private_ip_cidr = config.get("cloudsql_private_ip_cidr", "") or (
+        f"{cloudsql_private_ip}/32" if cloudsql_private_ip else ""
+    )
 
     # Seed: PLACEHOLDER_<KEY> -> default value from secret_schema.
     subs: dict[str, str] = {}
@@ -57,17 +61,11 @@ def _build_substitution_map(
         "PLACEHOLDER_KAMAILIO_INTERNAL_LB_ADDRESS": kamailio_lb_address
             or subs.get("PLACEHOLDER_KAMAILIO_INTERNAL_LB_ADDRESS", ""),
         "PLACEHOLDER_KAMAILIO_INTERNAL_LB_NAME": kamailio_lb_name,
+        # Cloud SQL private IP (operator-supplied via config.yaml). PR #5b
+        # will source these from Terraform outputs.
+        "PLACEHOLDER_CLOUDSQL_PRIVATE_IP": cloudsql_private_ip,
+        "PLACEHOLDER_CLOUDSQL_PRIVATE_IP_CIDR": cloudsql_private_ip_cidr,
         # Terraform outputs.
-        "PLACEHOLDER_INSTANCE_NAME": terraform_outputs.get(
-            "cloudsql_instance_name", "voipbin-mysql"
-        ),
-        "PLACEHOLDER_CLOUDSQL_SA": terraform_outputs.get(
-            "cloudsql_proxy_sa_name", "voipbin-cloudsql-proxy"
-        ),
-        "PLACEHOLDER_CLOUDSQL_CONNECTION_NAME": (
-            f"{project_id}:{config.get('region', '')}:"
-            f"{terraform_outputs.get('cloudsql_instance_name', 'voipbin-mysql')}"
-        ),
         # RabbitMQ broker bootstrap credentials. Default user/pass is
         # `guest`/`guest` to match production. Operator may override via
         # config.yaml rabbitmq_user / secrets.yaml rabbitmq_password.

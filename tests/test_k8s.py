@@ -38,7 +38,6 @@ def sample_secrets():
 def sample_tf_outputs():
     return {
         "cloudsql_instance_name": "prod-mysql",
-        "cloudsql_proxy_sa_name": "sa-proxy",
         "recording_bucket_name": "my-project-123-recordings",
     }
 
@@ -81,9 +80,29 @@ class TestBuildSubstitutionMap:
 
     def test_terraform_outputs_mapped(self, sample_config, sample_secrets, sample_tf_outputs):
         subs = _build_substitution_map(sample_config, sample_tf_outputs, sample_secrets)
-        assert subs["PLACEHOLDER_INSTANCE_NAME"] == "prod-mysql"
-        assert subs["PLACEHOLDER_CLOUDSQL_SA"] == "sa-proxy"
         assert subs["PLACEHOLDER_RECORDING_BUCKET_NAME"] == "my-project-123-recordings"
+
+    def test_cloudsql_private_ip_placeholder(self, sample_secrets, sample_tf_outputs):
+        cfg = FakeConfig({
+            "domain": "voipbin.example.com",
+            "gcp_project_id": "my-project-123",
+            "region": "us-central1",
+            "cloudsql_private_ip": "10.42.0.7",
+        })
+        subs = _build_substitution_map(cfg, sample_tf_outputs, sample_secrets)
+        assert subs["PLACEHOLDER_CLOUDSQL_PRIVATE_IP"] == "10.42.0.7"
+        assert subs["PLACEHOLDER_CLOUDSQL_PRIVATE_IP_CIDR"] == "10.42.0.7/32"
+
+    def test_cloudsql_private_ip_cidr_override(self, sample_secrets, sample_tf_outputs):
+        cfg = FakeConfig({
+            "domain": "voipbin.example.com",
+            "gcp_project_id": "my-project-123",
+            "region": "us-central1",
+            "cloudsql_private_ip": "10.42.0.7",
+            "cloudsql_private_ip_cidr": "10.42.0.0/24",
+        })
+        subs = _build_substitution_map(cfg, sample_tf_outputs, sample_secrets)
+        assert subs["PLACEHOLDER_CLOUDSQL_PRIVATE_IP_CIDR"] == "10.42.0.0/24"
 
     def test_static_ip_tokens_fallback(self, sample_config, sample_secrets):
         subs = _build_substitution_map(sample_config, {}, sample_secrets)

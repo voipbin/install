@@ -94,6 +94,9 @@ class InstallerConfig:
             "rtpengine_count": DEFAULT_RTPENGINE_COUNT,
             "installer_version": INSTALLER_VERSION,
             "init_timestamp": datetime.now(timezone.utc).isoformat(),
+            # PR #5a: Cloud SQL private IP (operator-supplied). Sentinel
+            # default per RFC 2606 — preflight rejects this value.
+            "cloudsql_private_ip": "cloudsql-private.invalid",
         }
         for k, v in defaults.items():
             if k not in self._data:
