@@ -94,7 +94,7 @@ def ensure_state_bucket(config: InstallerConfig) -> bool:
              f"--project={project_id}",
              f"--location={region}",
              "--uniform-bucket-level-access",
-             "--public-access-prevention=enforced"],
+             "--public-access-prevention"],
             capture=True,
             timeout=120,
         )
