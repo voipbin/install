@@ -105,6 +105,7 @@ class TestBuildRegistryServiceAccounts:
             "gcp_project_id": "my-project",
             "region": "us-central1",
             "zone": "us-central1-a",
+            "env": "test",
             "kamailio_count": 1,
             "rtpengine_count": 1,
         })
@@ -164,6 +165,7 @@ class TestBuildRegistryAllResources:
             "gcp_project_id": "proj-abc",
             "region": "us-central1",
             "zone": "us-central1-a",
+            "env": "test",
             "kamailio_count": kamailio_count,
             "rtpengine_count": rtpengine_count,
         })
@@ -260,6 +262,7 @@ class TestReconcile:
             "gcp_project_id": "proj",
             "region": "us-central1",
             "zone": "us-central1-a",
+            "env": "test",
             "kamailio_count": 1,
             "rtpengine_count": 1,
         })

@@ -23,6 +23,125 @@ from scripts.utils import _validate_cmd_arg, run_cmd
 _NOT_FOUND_PHRASES = ("not found", "notfound", "not_found", "does not exist", "404", "no such")
 
 
+class ReconcileRegistryError(ValueError):
+    """Registry construction failed validation.
+
+    Raised by `_validate_entry` when an entry is constructed with a `None`
+    literal, an unsubstituted `${var}` placeholder, or other shape drift
+    that would cause `terraform import` to fail non-deterministically.
+    """
+
+
+# Forbidden substrings in tf_address / import_id / gcloud_check argv tokens.
+# - "None": str(None) leaked into an f-string (GAP-35 root cause).
+# - "${" / "}": unsubstituted Terraform/template placeholder.
+_FORBIDDEN_SUBSTRINGS = ("None", "${", "}")
+
+
+def _has_empty_segment(value: str) -> bool:
+    """Return True if ``value`` has an empty segment between dots (``a..b``)."""
+    if not value:
+        return True
+    return any(seg == "" for seg in value.split("."))
+
+
+def _validate_entry(entry: dict[str, Any]) -> None:
+    """Validate a single reconcile registry entry. Raises on shape drift.
+
+    Hard-fails when any of these are true for a constructed entry:
+    - tf_address contains "None", empty segment between dots, or unsubstituted ${ / }.
+    - import_id  contains "None" or unsubstituted ${ / }.
+    - any token in gcloud_check matches r"^None" OR is empty OR contains ${ / }.
+    - description is missing/empty.
+
+    Error names the offending field + the registry key (tf_address) and
+    surfaces an operator hint to re-run `voipbin-install init --reconfigure`.
+    """
+    hint = "Hint: run 'voipbin-install init --reconfigure'."
+    tf_addr = entry.get("tf_address") or "<unknown>"
+
+    # Description first — cheapest check, names every entry.
+    description = entry.get("description")
+    if not description:
+        raise ReconcileRegistryError(
+            f"Registry entry for '{tf_addr}' has missing/empty description. {hint}"
+        )
+
+    # tf_address
+    if not isinstance(tf_addr, str) or not tf_addr:
+        raise ReconcileRegistryError(
+            f"Registry entry has missing/empty tf_address. {hint}"
+        )
+    for bad in _FORBIDDEN_SUBSTRINGS:
+        if bad in tf_addr:
+            raise ReconcileRegistryError(
+                f"Registry entry for '{tf_addr}' has invalid tf_address "
+                f"(contains forbidden token {bad!r}). {hint}"
+            )
+    if _has_empty_segment(tf_addr):
+        raise ReconcileRegistryError(
+            f"Registry entry for '{tf_addr}' has invalid tf_address "
+            f"(empty segment between dots). {hint}"
+        )
+
+    # import_id
+    import_id = entry.get("import_id")
+    if not isinstance(import_id, str) or not import_id:
+        raise ReconcileRegistryError(
+            f"Registry entry for '{tf_addr}' has missing/empty import_id. {hint}"
+        )
+    for bad in _FORBIDDEN_SUBSTRINGS:
+        if bad in import_id:
+            raise ReconcileRegistryError(
+                f"Registry entry for '{tf_addr}' has invalid import_id "
+                f"'{import_id}' (contains forbidden token {bad!r}). {hint}"
+            )
+
+    # gcloud_check argv
+    argv = entry.get("gcloud_check")
+    if not isinstance(argv, list) or not argv:
+        raise ReconcileRegistryError(
+            f"Registry entry for '{tf_addr}' has missing/empty gcloud_check. {hint}"
+        )
+    for tok in argv:
+        if not isinstance(tok, str) or tok == "":
+            raise ReconcileRegistryError(
+                f"Registry entry for '{tf_addr}' has invalid gcloud_check token "
+                f"(empty or non-string): {argv!r}. {hint}"
+            )
+        if re.match(r"^None", tok):
+            raise ReconcileRegistryError(
+                f"Registry entry for '{tf_addr}' has invalid gcloud_check token "
+                f"{tok!r} (starts with 'None'). {hint}"
+            )
+        if "${" in tok or "}" in tok:
+            raise ReconcileRegistryError(
+                f"Registry entry for '{tf_addr}' has invalid gcloud_check token "
+                f"{tok!r} (contains unsubstituted placeholder). {hint}"
+            )
+
+    # parent_check (optional) — same shape rules as gcloud_check when present.
+    parent = entry.get("parent_check")
+    if parent is not None:
+        if not isinstance(parent, list) or not parent:
+            raise ReconcileRegistryError(
+                f"Registry entry for '{tf_addr}' has invalid parent_check "
+                f"(must be non-empty list when present). {hint}"
+            )
+        for tok in parent:
+            if not isinstance(tok, str) or tok == "":
+                raise ReconcileRegistryError(
+                    f"Registry entry for '{tf_addr}' has invalid parent_check token "
+                    f"(empty or non-string): {parent!r}. {hint}"
+                )
+            if re.match(r"^None", tok) or "${" in tok or "}" in tok:
+                raise ReconcileRegistryError(
+                    f"Registry entry for '{tf_addr}' has invalid parent_check token "
+                    f"{tok!r}. {hint}"
+                )
+
+
+
 def _always_valid(v: Any) -> bool:
     return True
 
@@ -126,6 +245,19 @@ def build_registry(config: InstallerConfig) -> list[dict[str, Any]]:
     zone = config.get("zone")
     kamailio_count = config.get("kamailio_count", 1)
     rtpengine_count = config.get("rtpengine_count", 1)
+
+    # PR-L: fail fast if required substitutions are missing. Avoids the
+    # GAP-35 failure mode where str(None) leaks into f-strings below.
+    # Inline check (rather than config.assert_required) keeps build_registry
+    # working with any config-like object that supports .get(...) — stub
+    # configs in tests don't need to implement assert_required.
+    from scripts.config import RECONCILE_REQUIRED_KEYS
+    missing = [k for k in RECONCILE_REQUIRED_KEYS if not config.get(k)]
+    if missing:
+        raise ReconcileRegistryError(
+            f"Missing required config keys for reconcile: {', '.join(missing)}. "
+            f"Hint: run 'voipbin-install init --reconfigure' to set them."
+        )
 
     entries: list[dict[str, Any]] = []
 
@@ -383,6 +515,11 @@ def build_registry(config: InstallerConfig) -> list[dict[str, Any]]:
         "gcloud_check": ["gcloud", "sql", "databases", "describe", "voipbin",
                          "--instance=voipbin-mysql", f"--project={project}"],
         "import_id":    f"projects/{project}/instances/voipbin-mysql/databases/voipbin",
+        # PR-L (GAP-36): parent instance may not exist on fresh project.
+        # Defer the import instead of marking as failed; terraform_apply
+        # will create both instance and database on this run.
+        "parent_check": ["gcloud", "sql", "instances", "describe", "voipbin-mysql",
+                         f"--project={project}"],
     })
     entries.append({
         "tf_address":   "google_sql_user.voipbin",
@@ -390,6 +527,9 @@ def build_registry(config: InstallerConfig) -> list[dict[str, Any]]:
         "gcloud_check": ["gcloud", "sql", "users", "list", "--instance=voipbin-mysql",
                          "--filter=name=voipbin", f"--project={project}"],
         "import_id":    f"{project}/voipbin-mysql/voipbin",
+        # PR-L (GAP-36): same parent as database — Cloud SQL instance.
+        "parent_check": ["gcloud", "sql", "instances", "describe", "voipbin-mysql",
+                         f"--project={project}"],
     })
 
     # -- GKE (cluster must come before node pool) -----------------------
@@ -407,6 +547,12 @@ def build_registry(config: InstallerConfig) -> list[dict[str, Any]]:
                          "--cluster=voipbin-gke-cluster", f"--zone={zone}", f"--project={project}"],
         "import_id":    f"projects/{project}/locations/{zone}/clusters/voipbin-gke-cluster/nodePools/voipbin-node-pool",
     })
+
+    # PR-L: every constructed entry must pass shape validation before
+    # build_registry returns. Any violation is a hard error — the operator
+    # will receive a precise message naming the field and the registry key.
+    for entry in entries:
+        _validate_entry(entry)
 
     return entries
 
@@ -478,8 +624,20 @@ def imports(config: InstallerConfig, auto_approve: bool = False) -> bool:
         return False
 
     # Import each conflict
-    successes, failures = [], []
+    successes, failures, deferred = [], [], []
     for entry in conflicts:
+        # PR-L (GAP-36): if parent_check is set and the parent does not
+        # exist, defer the import — terraform_apply will create both
+        # parent and child on this run.
+        if entry.get("parent_check"):
+            parent_rc = run_cmd(entry["parent_check"], capture=True, timeout=30).returncode
+            if parent_rc != 0:
+                print_warning(
+                    f"Parent absent for {entry['tf_address']}; "
+                    f"deferring import to post-apply"
+                )
+                deferred.append(entry)
+                continue
         print_step(f"↺ Importing [dim]{entry['tf_address']}[/dim]...")
         ok, err = import_resource(entry["tf_address"], entry["import_id"], project_id)
         if ok:
@@ -490,7 +648,10 @@ def imports(config: InstallerConfig, auto_approve: bool = False) -> bool:
             failures.append((entry, err))
 
     console.print()
-    print_step(f"Summary: {len(successes)} imported, {len(failures)} failed")
+    print_step(
+        f"Summary: imported: {len(successes)} | "
+        f"deferred: {len(deferred)} | failed: {len(failures)}"
+    )
 
     if failures:
         print_error("Import failed for:")
@@ -500,6 +661,12 @@ def imports(config: InstallerConfig, auto_approve: bool = False) -> bool:
             note = " [dim]# unverified — confirm resource exists before importing[/dim]" if entry.get("unverified") else ""
             console.print(f"    [dim]Run manually:[/dim] terraform import -var project_id={project_id} {tf_addr} {import_id}{note}")
         return False
+
+    if deferred:
+        # PR-L: all non-imported entries were deferred (parent absent).
+        # Stage succeeds and the pipeline continues; terraform_apply will
+        # create the parents, after which a re-run can import them.
+        print_warning(f"{len(deferred)} imports deferred to post-apply")
 
     return True
 

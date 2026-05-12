@@ -256,3 +256,207 @@ def test_reconcile_imports_without_auto_approve_does_read_stdin(monkeypatch) -> 
     # EOFError / OSError to remain robust across rich versions.
     with pytest.raises((EOFError, OSError)):
         pipeline._run_reconcile_imports(cfg, {}, dry_run=False, auto_approve=False)
+
+
+# ---------------------------------------------------------------------------
+# PR-L — registry validator + parent_check + required-keys tests
+# ---------------------------------------------------------------------------
+
+
+def _good_entry(**overrides: Any) -> dict[str, Any]:
+    """Return a minimally-valid registry entry; tests override one field."""
+    entry: dict[str, Any] = {
+        "tf_address":   "google_storage_bucket.recordings",
+        "description":  "GCS Recordings Bucket",
+        "gcloud_check": ["gcloud", "storage", "buckets", "describe",
+                         "gs://dev-voipbin-recordings", "--project=p"],
+        "import_id":    "dev-voipbin-recordings",
+    }
+    entry.update(overrides)
+    return entry
+
+
+def test_registry_validator_rejects_none_substring() -> None:
+    """PR-L D4.1 — `None` literal in tf_address must hard-fail."""
+    from scripts.terraform_reconcile import ReconcileRegistryError, _validate_entry
+
+    bad = _good_entry(tf_address="google_storage_bucket.None-voipbin-recordings")
+    with pytest.raises(ReconcileRegistryError) as excinfo:
+        _validate_entry(bad)
+    msg = str(excinfo.value)
+    assert "tf_address" in msg
+    assert "None" in msg
+    assert "init --reconfigure" in msg
+
+
+def test_registry_validator_rejects_unsubstituted_template() -> None:
+    """PR-L D4.2 — `${var.env}` placeholder in argv must hard-fail."""
+    from scripts.terraform_reconcile import ReconcileRegistryError, _validate_entry
+
+    bad = _good_entry(gcloud_check=[
+        "gcloud", "storage", "buckets", "describe",
+        "gs://${var.env}-voipbin-recordings", "--project=p",
+    ])
+    with pytest.raises(ReconcileRegistryError) as excinfo:
+        _validate_entry(bad)
+    msg = str(excinfo.value)
+    assert "gcloud_check" in msg
+    assert "${" in msg or "placeholder" in msg
+
+
+def test_required_keys_missing_raises_with_hint() -> None:
+    """PR-L D4.3 — InstallerConfig missing `env` → build_registry hard-fails."""
+    from scripts.config import InstallerConfig
+    from scripts.terraform_reconcile import ReconcileRegistryError, build_registry
+
+    cfg = InstallerConfig()
+    cfg.set_many({
+        "gcp_project_id": "x",
+        "region": "y",
+        "zone": "y-a",
+        # NOTE: no `env` — that's the precondition.
+    })
+    with pytest.raises(ReconcileRegistryError) as excinfo:
+        build_registry(cfg)
+    msg = str(excinfo.value)
+    assert "env" in msg
+    assert "init --reconfigure" in msg
+
+
+class _ParentCheckConfig:
+    """Minimal config stub that already passes required-keys validation."""
+
+    def __init__(self) -> None:
+        self._data = {
+            "gcp_project_id": "p",
+            "region": "us-central1",
+            "zone": "us-central1-a",
+            "env": "test",
+            "kamailio_count": 0,
+            "rtpengine_count": 0,
+        }
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._data.get(key, default)
+
+
+def _parent_check_fake_registry() -> list[dict[str, Any]]:
+    """One child entry with a parent_check, gcloud_check, valid shape."""
+    return [{
+        "tf_address":   "google_sql_database.voipbin",
+        "description":  "Cloud SQL Database",
+        "gcloud_check": ["gcloud", "sql", "databases", "describe", "voipbin",
+                         "--instance=voipbin-mysql", "--project=p"],
+        "import_id":    "projects/p/instances/voipbin-mysql/databases/voipbin",
+        "parent_check": ["gcloud", "sql", "instances", "describe",
+                         "voipbin-mysql", "--project=p"],
+    }]
+
+
+def test_parent_check_defer_path(monkeypatch) -> None:
+    """PR-L D4.4 — parent_check rc!=0 → entry deferred, stage returns True."""
+    from scripts import terraform_reconcile as tr
+
+    monkeypatch.setattr(tr, "build_registry", lambda cfg: _parent_check_fake_registry())
+    monkeypatch.setattr(tr, "terraform_state_list", lambda cfg: set())
+    monkeypatch.setattr(tr, "check_exists_in_gcp", lambda cmd: (True, True))
+
+    import_called = {"n": 0}
+
+    def fake_import(addr: str, iid: str, pid: str) -> tuple[bool, str]:
+        import_called["n"] += 1
+        return True, ""
+
+    monkeypatch.setattr(tr, "import_resource", fake_import)
+
+    def fake_run_cmd(cmd, *args, **kwargs):
+        # parent_check returns 1 — parent absent.
+        return _FakeCompleted(rc=1, stderr="404 not found")
+
+    monkeypatch.setattr(tr, "run_cmd", fake_run_cmd)
+
+    cfg = _ParentCheckConfig()
+    ok = tr.imports(cfg, auto_approve=True)
+    assert ok is True, "stage must succeed when every non-imported entry is deferred"
+    assert import_called["n"] == 0, "import_resource must NOT be called when parent absent"
+
+
+def test_parent_check_present_path(monkeypatch) -> None:
+    """PR-L D4.5 — parent_check rc=0 → entry attempts import as normal."""
+    from scripts import terraform_reconcile as tr
+
+    monkeypatch.setattr(tr, "build_registry", lambda cfg: _parent_check_fake_registry())
+    monkeypatch.setattr(tr, "terraform_state_list", lambda cfg: set())
+    monkeypatch.setattr(tr, "check_exists_in_gcp", lambda cmd: (True, True))
+
+    import_calls: list[tuple[str, str, str]] = []
+
+    def fake_import(addr: str, iid: str, pid: str) -> tuple[bool, str]:
+        import_calls.append((addr, iid, pid))
+        return True, ""
+
+    monkeypatch.setattr(tr, "import_resource", fake_import)
+
+    def fake_run_cmd(cmd, *args, **kwargs):
+        # parent_check returns 0 — parent exists.
+        return _FakeCompleted(rc=0)
+
+    monkeypatch.setattr(tr, "run_cmd", fake_run_cmd)
+
+    cfg = _ParentCheckConfig()
+    ok = tr.imports(cfg, auto_approve=True)
+    assert ok is True
+    assert len(import_calls) == 1, (
+        f"import_resource must be called when parent_check rc=0; got {import_calls!r}"
+    )
+    assert import_calls[0][0] == "google_sql_database.voipbin"
+
+
+def _all_deferrals_fake_registry() -> list[dict[str, Any]]:
+    """4 child entries each with a parent_check — mirrors iter-4 smoke."""
+    base = [
+        ("google_sql_database.voipbin",      "Cloud SQL Database"),
+        ("google_sql_user.voipbin",          "Cloud SQL User"),
+        ("google_sql_database.aux1",         "Cloud SQL Database (aux 1)"),
+        ("google_sql_database.aux2",         "Cloud SQL Database (aux 2)"),
+    ]
+    entries: list[dict[str, Any]] = []
+    for addr, desc in base:
+        entries.append({
+            "tf_address":   addr,
+            "description":  desc,
+            "gcloud_check": ["gcloud", "sql", "databases", "describe", "x",
+                             "--instance=voipbin-mysql", "--project=p"],
+            "import_id":    f"projects/p/instances/voipbin-mysql/databases/{addr}",
+            "parent_check": ["gcloud", "sql", "instances", "describe",
+                             "voipbin-mysql", "--project=p"],
+        })
+    return entries
+
+
+def test_reconcile_imports_returns_true_when_all_failures_are_deferrals(monkeypatch) -> None:
+    """PR-L D4.6 — pipeline integration: 4 deferred → _run_reconcile_imports True."""
+    import io
+    from scripts import pipeline, terraform_reconcile as tr
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+
+    monkeypatch.setattr(tr, "build_registry", lambda cfg: _all_deferrals_fake_registry())
+    monkeypatch.setattr(tr, "terraform_state_list", lambda cfg: set())
+    monkeypatch.setattr(tr, "check_exists_in_gcp", lambda cmd: (True, True))
+
+    def fake_import(addr: str, iid: str, pid: str) -> tuple[bool, str]:
+        raise AssertionError(
+            f"import_resource called for deferred entry {addr!r} — bug"
+        )
+
+    monkeypatch.setattr(tr, "import_resource", fake_import)
+    monkeypatch.setattr(tr, "run_cmd",
+                        lambda cmd, *a, **kw: _FakeCompleted(rc=1, stderr="not found"))
+
+    cfg = _ParentCheckConfig()
+    ok = pipeline._run_reconcile_imports(cfg, {}, dry_run=False, auto_approve=True)
+    assert ok is True, (
+        "pipeline stage must succeed when every conflict is a deferred child"
+    )
+

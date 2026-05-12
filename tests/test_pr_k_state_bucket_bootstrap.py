@@ -19,6 +19,9 @@ def _make_config(env: str | None = None, project: str = "voipbin-install-dev",
     cfg = InstallerConfig()
     cfg.set("gcp_project_id", project)
     cfg.set("region", region)
+    # PR-L: zone is required by reconcile registry entries that include
+    # zonal resources; the validator rejects "None" substitutions.
+    cfg.set("zone", f"{region}-a")
     if env is not None:
         cfg.set("env", env)
     return cfg
