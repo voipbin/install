@@ -24,7 +24,7 @@ INSTALLER_VERSION = "1.0.0"
 # safely construct reconcile entries. Missing any of these results in
 # `"None"` literals leaking into tf_address / import_id / gcloud argvs
 # (GAP-35 shape). See PR-L design doc.
-RECONCILE_REQUIRED_KEYS: tuple[str, ...] = ("gcp_project_id", "region", "env")
+RECONCILE_REQUIRED_KEYS: tuple[str, ...] = ("gcp_project_id", "region")
 
 
 class InstallerConfig:
