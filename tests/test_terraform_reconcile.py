@@ -182,7 +182,7 @@ class TestBuildRegistryAllResources:
     def test_includes_all_eight_firewall_rules(self):
         addresses = {e["tf_address"] for e in build_registry(self._make_config())}
         fw_rules = {"fw_allow_internal", "fw_gke_internal", "fw_healthcheck",
-                    "fw_iap_ssh", "fw_kamailio_sip", "fw_rtpengine_control",
+                    "fw_vm_ssh", "fw_kamailio_sip", "fw_rtpengine_control",
                     "fw_rtpengine_rtp", "fw_vm_to_infra"}
         for rule in fw_rules:
             assert f"google_compute_firewall.{rule}" in addresses, f"Missing firewall rule: {rule}"

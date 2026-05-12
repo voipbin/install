@@ -182,6 +182,15 @@ def _run_ansible(
     dry_run: bool,
     auto_approve: bool,
 ) -> bool:
+    # OS Login preflight: VMs use OS Login for SSH and require a registered
+    # SSH key on the operator's profile. Run this check on the live path
+    # only (skip during dry_run since dry_run never opens an SSH connection).
+    if not dry_run:
+        from scripts.preflight import check_oslogin_setup
+        err = check_oslogin_setup()
+        if err is not None:
+            print_error(err)
+            return False
     if dry_run:
         # ansible --check requires SSH to existing VMs; skip gracefully
         # when no Terraform outputs are available (infrastructure not yet created)
