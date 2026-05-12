@@ -5,4 +5,3 @@ resources:
   - admin.yaml
   - talk.yaml
   - meet.yaml
-  - tls-proxy-configmap.yaml

@@ -6,6 +6,7 @@ from typing import Any
 
 from scripts.config import InstallerConfig
 from scripts.display import console, print_error, print_step, print_success, print_warning
+from scripts.secret_schema import BIN_SECRET_KEYS, VOIP_SECRET_KEYS
 from scripts.secretmgr import decrypt_with_sops
 from scripts.utils import INSTALLER_DIR, run_cmd
 
@@ -18,46 +19,64 @@ def _build_substitution_map(
     terraform_outputs: dict[str, Any],
     secrets: dict[str, str],
 ) -> dict[str, str]:
-    """Build a mapping of PLACEHOLDER_* tokens to actual deployment values."""
+    """Build a mapping of PLACEHOLDER_* tokens to actual deployment values.
+
+    Defaults are sourced from ``scripts/secret_schema.py``. The operator's
+    sops-decrypted ``secrets.yaml`` values override the defaults so any key
+    can be customized without editing manifests.
+    """
     domain = config.get("domain", "")
     project_id = config.get("gcp_project_id", "")
     region = config.get("region", "")
-    rabbitmq_user = secrets.get("rabbitmq_user", "voipbin")
-    rabbitmq_password = secrets.get("rabbitmq_password", "")
-    redis_password = secrets.get("redis_password", "")
+    kamailio_lb_address = config.get("kamailio_internal_lb_address", "")
+    kamailio_lb_name = config.get("kamailio_internal_lb_name", "kamailio-internal-lb")
 
-    return {
-        # Secrets
-        "PLACEHOLDER_JWT_KEY": secrets.get("jwt_key", ""),
-        "PLACEHOLDER_DB_USER": "root",
-        "PLACEHOLDER_DB_PASSWORD": secrets.get("cloudsql_password", ""),
-        "PLACEHOLDER_REDIS_PASSWORD": redis_password,
-        "PLACEHOLDER_RABBITMQ_USER": rabbitmq_user,
-        "PLACEHOLDER_RABBITMQ_PASSWORD": rabbitmq_password,
-        "PLACEHOLDER_API_SIGNING_KEY": secrets.get("api_signing_key", ""),
-        # Config
+    # Seed: PLACEHOLDER_<KEY> -> default value from secret_schema.
+    subs: dict[str, str] = {}
+    for key, meta in BIN_SECRET_KEYS.items():
+        subs[f"PLACEHOLDER_{key}"] = str(meta["default"])
+    for key, meta in VOIP_SECRET_KEYS.items():
+        # Same token namespace; voip dupes (RABBITMQ_ADDRESS etc.) collapse
+        # cleanly because the values match by design.
+        subs[f"PLACEHOLDER_{key}"] = str(meta["default"])
+
+    # Override schema defaults from sops secrets.yaml (when present).
+    # Keys are expected to be UPPER_SNAKE matching the Secret keys exactly.
+    for key, value in secrets.items():
+        if value is None:
+            continue
+        token = f"PLACEHOLDER_{key}"
+        subs[token] = str(value)
+
+    # Top-level config / infra tokens (independent of secret schema).
+    subs.update({
         "PLACEHOLDER_DOMAIN": domain,
         "PLACEHOLDER_PROJECT_ID": project_id,
         "PLACEHOLDER_REGION": region,
-        "PLACEHOLDER_DB_NAME": "voipbin",
-        "PLACEHOLDER_ACME_EMAIL": f"admin@{domain}",
-        # Terraform outputs
+        "PLACEHOLDER_ACME_EMAIL": f"admin@{domain}" if domain else "",
+        "PLACEHOLDER_KAMAILIO_INTERNAL_LB_ADDRESS": kamailio_lb_address
+            or subs.get("PLACEHOLDER_KAMAILIO_INTERNAL_LB_ADDRESS", ""),
+        "PLACEHOLDER_KAMAILIO_INTERNAL_LB_NAME": kamailio_lb_name,
+        # Terraform outputs.
         "PLACEHOLDER_INSTANCE_NAME": terraform_outputs.get(
             "cloudsql_instance_name", "voipbin-mysql"
         ),
         "PLACEHOLDER_CLOUDSQL_SA": terraform_outputs.get(
             "cloudsql_proxy_sa_name", "voipbin-cloudsql-proxy"
         ),
+        "PLACEHOLDER_CLOUDSQL_CONNECTION_NAME": (
+            f"{project_id}:{config.get('region', '')}:"
+            f"{terraform_outputs.get('cloudsql_instance_name', 'voipbin-mysql')}"
+        ),
+        # RabbitMQ broker bootstrap credentials. Default user/pass is
+        # `guest`/`guest` to match production. Operator may override via
+        # config.yaml rabbitmq_user / secrets.yaml rabbitmq_password.
+        "PLACEHOLDER_RABBITMQ_USER": config.get("rabbitmq_user", "guest"),
+        "PLACEHOLDER_RABBITMQ_PASSWORD": secrets.get("rabbitmq_password", "guest"),
         "PLACEHOLDER_RECORDING_BUCKET_NAME": terraform_outputs.get(
             "recording_bucket_name", f"{project_id}-voipbin-recordings"
         ),
-        # External Service static IPs.
-        # NAME tokens (PR #10) kept for backward-compat; not consumed by
-        # manifests in PR #3a. ADDRESS tokens are bound to
-        # `Service.spec.loadBalancerIP` and must resolve to an IPv4
-        # literal — empty string is acceptable as it produces
-        # `loadBalancerIP:` (null) and the preflight in init.py raises
-        # before manifests reach GCP if any ADDRESS is empty.
+        # External Service static IPs (PR #10/#11).
         "PLACEHOLDER_STATIC_IP_NAME_API_MANAGER": terraform_outputs.get(
             "api_manager_static_ip_name", "api-manager-static-ip"
         ),
@@ -88,16 +107,9 @@ def _build_substitution_map(
         "PLACEHOLDER_STATIC_IP_ADDRESS_MEET": terraform_outputs.get(
             "meet_static_ip_address", ""
         ),
-        # Derived composite values
-        "PLACEHOLDER_RABBITMQ_ADDRESS": (
-            f"amqp://{rabbitmq_user}:{rabbitmq_password}"
-            "@rabbitmq.infrastructure.svc.cluster.local:5672/"
-        ),
-        "PLACEHOLDER_REDIS_ADDRESS": (
-            f"redis://:{redis_password}"
-            "@redis.infrastructure.svc.cluster.local:6379/0"
-        ),
-    }
+    })
+
+    return subs
 
 
 def _render_manifests(
@@ -181,33 +193,20 @@ def k8s_apply(
 ) -> bool:
     """Apply Kubernetes manifests with secrets/config substituted.
 
-    Steps:
-    1. Fetch GKE credentials
-    2. Preflight LoadBalancer ADDRESS tokens (hard fail if any empty
-       except when `tls_strategy == "byoc"`)
-    3. Render manifests via kustomize with placeholder substitution
-    4. Preflight NodePort capacity (warning only)
-    5. Apply rendered manifests via ``kubectl apply -f -`` (this
-       creates the bin-manager namespace and the voipbin-secret with
-       empty SSL_*_BASE64 fields, plus 4 LoadBalancer Services in
-       Pending state pending the cert).
-    6. Bootstrap voipbin-tls + patch voipbin-secret with SSL_CERT/
-       PRIVKEY base64 (idempotent + atomic-pair contract; see
-       scripts/tls_bootstrap.py). Apply happens BEFORE bootstrap so
-       the Secret exists for the patch step.
-    7. Rolling-restart the Pods that consume the patched cert so the
-       new SSL env values take effect.
+    PR #4 simplification: tls_bootstrap.py now seeds ``secrets.yaml`` at
+    ``init`` time, so by the time we render here the four SSL_*_BASE64
+    keys and JWT_KEY are already in the sops file. Apply is a single
+    ``kubectl apply`` — no post-apply patching or rollout restarts.
     """
     from scripts.preflight import (
         check_loadbalancer_addresses,
         check_nodeport_availability,
     )
-    from scripts.tls_bootstrap import BootstrapError, bootstrap_voipbin_tls_secret
 
     if not k8s_get_credentials(config, terraform_outputs):
         return False
 
-    # 2. LoadBalancer ADDRESS preflight (hard fail)
+    # LoadBalancer ADDRESS preflight (hard fail)
     tls_strategy = config.get("tls_strategy", "self-signed")
     if tls_strategy != "byoc":
         missing = check_loadbalancer_addresses(terraform_outputs)
@@ -227,7 +226,7 @@ def k8s_apply(
     if not ok:
         return False
 
-    # 4. NodePort preflight (non-fatal warning)
+    # NodePort preflight (non-fatal warning)
     if not check_nodeport_availability(needed=7):
         print_warning(
             "Cluster may have fewer than 7 free NodePort slots in "
@@ -249,40 +248,6 @@ def k8s_apply(
     if result.stdout:
         _print_apply_summary(result.stdout)
     print_success("Kubernetes manifests applied")
-
-    # 6. TLS bootstrap (after manifest apply so voipbin-secret exists).
-    # When tls_strategy == "byoc" the operator supplies the cert into
-    # voipbin-secret manually; bootstrap detects populated keys and
-    # leaves them untouched (atomic-pair contract case 2).
-    domain = config.get("domain", "")
-    hostnames = [f"{h}.{domain}" if domain else h for h in
-                 ("api", "hook", "admin", "talk", "meet")]
-    try:
-        bootstrap_result = bootstrap_voipbin_tls_secret(hostnames=hostnames)
-    except BootstrapError as exc:
-        print_error(f"TLS bootstrap failed: {exc}")
-        return False
-    except Exception as exc:  # noqa: BLE001 — surface unexpected errors
-        print_error(f"TLS bootstrap raised unexpected error: {exc}")
-        return False
-
-    # 7. If we patched the Secret, restart consumers so they pick up
-    # the new env values. (Pods started by step 5 may have come up
-    # with empty SSL env vars — TLS listener would have failed.)
-    if bootstrap_result.voipbin_secret_action == "patched":
-        print_step("Rolling-restart api-manager and hook-manager to pick up new TLS env...")
-        for deploy in ("api-manager", "hook-manager"):
-            r = subprocess.run(
-                ["kubectl", "-n", "bin-manager", "rollout", "restart", f"deployment/{deploy}"],
-                capture_output=True, text=True, timeout=60,
-            )
-            if r.returncode != 0:
-                # Deployment may not exist yet in some unusual states;
-                # warn but don't fail the whole apply.
-                print_warning(
-                    f"rollout restart {deploy} returned non-zero: {r.stderr.strip()}"
-                )
-
     return True
 
 

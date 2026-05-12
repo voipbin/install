@@ -1,17 +1,12 @@
-"""Tests for scripts/k8s.py — placeholder substitution logic."""
+"""Tests for scripts/k8s.py — schema-driven placeholder substitution (PR #4)."""
 
 import pytest
 
 from scripts.k8s import _build_substitution_map
+from scripts.secret_schema import BIN_SECRET_KEYS, VOIP_SECRET_KEYS
 
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
 
 class FakeConfig:
-    """Minimal stand-in for InstallerConfig."""
-
     def __init__(self, data: dict):
         self._data = data
 
@@ -25,18 +20,17 @@ def sample_config():
         "domain": "voipbin.example.com",
         "gcp_project_id": "my-project-123",
         "region": "us-central1",
+        "kamailio_internal_lb_address": "10.99.0.5",
     })
 
 
 @pytest.fixture
 def sample_secrets():
+    # New schema: uppercase keys matching Secret keys.
     return {
-        "jwt_key": "test-jwt-key-abc",
-        "cloudsql_password": "db-pass-xyz",
-        "redis_password": "redis-pass-123",
-        "rabbitmq_user": "voipbin",
-        "rabbitmq_password": "rmq-pass-456",
-        "api_signing_key": "sign-key-789",
+        "JWT_KEY": "test-jwt",
+        "OPENAI_API_KEY": "sk-fake",
+        "REDIS_PASSWORD": "rpass",
     }
 
 
@@ -49,27 +43,41 @@ def sample_tf_outputs():
     }
 
 
-# ---------------------------------------------------------------------------
-# _build_substitution_map
-# ---------------------------------------------------------------------------
-
 class TestBuildSubstitutionMap:
-    def test_secrets_mapped(self, sample_config, sample_secrets, sample_tf_outputs):
+    def test_all_53_bin_keys_have_placeholders(self, sample_config, sample_secrets, sample_tf_outputs):
         subs = _build_substitution_map(sample_config, sample_tf_outputs, sample_secrets)
-        assert subs["PLACEHOLDER_JWT_KEY"] == "test-jwt-key-abc"
-        assert subs["PLACEHOLDER_DB_PASSWORD"] == "db-pass-xyz"
-        assert subs["PLACEHOLDER_REDIS_PASSWORD"] == "redis-pass-123"
-        assert subs["PLACEHOLDER_RABBITMQ_USER"] == "voipbin"
-        assert subs["PLACEHOLDER_RABBITMQ_PASSWORD"] == "rmq-pass-456"
-        assert subs["PLACEHOLDER_API_SIGNING_KEY"] == "sign-key-789"
+        for key in BIN_SECRET_KEYS:
+            assert f"PLACEHOLDER_{key}" in subs
 
-    def test_config_mapped(self, sample_config, sample_secrets, sample_tf_outputs):
+    def test_all_10_voip_keys_have_placeholders(self, sample_config, sample_secrets, sample_tf_outputs):
+        subs = _build_substitution_map(sample_config, sample_tf_outputs, sample_secrets)
+        for key in VOIP_SECRET_KEYS:
+            assert f"PLACEHOLDER_{key}" in subs
+
+    def test_sops_secret_overrides_schema_default(self, sample_config, sample_secrets, sample_tf_outputs):
+        subs = _build_substitution_map(sample_config, sample_tf_outputs, sample_secrets)
+        assert subs["PLACEHOLDER_JWT_KEY"] == "test-jwt"
+        assert subs["PLACEHOLDER_OPENAI_API_KEY"] == "sk-fake"
+        assert subs["PLACEHOLDER_REDIS_PASSWORD"] == "rpass"
+
+    def test_schema_default_when_secret_absent(self, sample_config, sample_tf_outputs):
+        subs = _build_substitution_map(sample_config, sample_tf_outputs, {})
+        # OPENAI_API_KEY default per secret_schema.
+        assert subs["PLACEHOLDER_OPENAI_API_KEY"] == "dummy-openai-key"
+        # CLICKHOUSE_ADDRESS default.
+        assert "clickhouse.infrastructure" in subs["PLACEHOLDER_CLICKHOUSE_ADDRESS"]
+
+    def test_top_level_tokens(self, sample_config, sample_secrets, sample_tf_outputs):
         subs = _build_substitution_map(sample_config, sample_tf_outputs, sample_secrets)
         assert subs["PLACEHOLDER_DOMAIN"] == "voipbin.example.com"
         assert subs["PLACEHOLDER_PROJECT_ID"] == "my-project-123"
         assert subs["PLACEHOLDER_REGION"] == "us-central1"
-        assert subs["PLACEHOLDER_DB_NAME"] == "voipbin"
         assert subs["PLACEHOLDER_ACME_EMAIL"] == "admin@voipbin.example.com"
+
+    def test_kamailio_lb_from_config(self, sample_config, sample_secrets, sample_tf_outputs):
+        subs = _build_substitution_map(sample_config, sample_tf_outputs, sample_secrets)
+        assert subs["PLACEHOLDER_KAMAILIO_INTERNAL_LB_ADDRESS"] == "10.99.0.5"
+        assert subs["PLACEHOLDER_KAMAILIO_INTERNAL_LB_NAME"] == "kamailio-internal-lb"
 
     def test_terraform_outputs_mapped(self, sample_config, sample_secrets, sample_tf_outputs):
         subs = _build_substitution_map(sample_config, sample_tf_outputs, sample_secrets)
@@ -77,138 +85,34 @@ class TestBuildSubstitutionMap:
         assert subs["PLACEHOLDER_CLOUDSQL_SA"] == "sa-proxy"
         assert subs["PLACEHOLDER_RECORDING_BUCKET_NAME"] == "my-project-123-recordings"
 
-    def test_derived_rabbitmq_address(self, sample_config, sample_secrets, sample_tf_outputs):
-        subs = _build_substitution_map(sample_config, sample_tf_outputs, sample_secrets)
-        expected = "amqp://voipbin:rmq-pass-456@rabbitmq.infrastructure.svc.cluster.local:5672/"
-        assert subs["PLACEHOLDER_RABBITMQ_ADDRESS"] == expected
-
-    def test_derived_redis_address(self, sample_config, sample_secrets, sample_tf_outputs):
-        subs = _build_substitution_map(sample_config, sample_tf_outputs, sample_secrets)
-        expected = "redis://:redis-pass-123@redis.infrastructure.svc.cluster.local:6379/0"
-        assert subs["PLACEHOLDER_REDIS_ADDRESS"] == expected
-
-    def test_db_user_defaults_to_root(self, sample_config, sample_secrets, sample_tf_outputs):
-        subs = _build_substitution_map(sample_config, sample_tf_outputs, sample_secrets)
-        assert subs["PLACEHOLDER_DB_USER"] == "root"
-
-    def test_defaults_when_secrets_empty(self, sample_config, sample_tf_outputs):
-        subs = _build_substitution_map(sample_config, sample_tf_outputs, {})
-        assert subs["PLACEHOLDER_RABBITMQ_USER"] == "voipbin"
-        assert subs["PLACEHOLDER_JWT_KEY"] == ""
-        assert subs["PLACEHOLDER_DB_USER"] == "root"
-
-    def test_defaults_when_tf_outputs_empty(self, sample_config, sample_secrets):
+    def test_static_ip_tokens_fallback(self, sample_config, sample_secrets):
         subs = _build_substitution_map(sample_config, {}, sample_secrets)
-        assert subs["PLACEHOLDER_INSTANCE_NAME"] == "voipbin-mysql"
-        assert subs["PLACEHOLDER_CLOUDSQL_SA"] == "voipbin-cloudsql-proxy"
-        assert subs["PLACEHOLDER_RECORDING_BUCKET_NAME"] == "my-project-123-voipbin-recordings"
-
-    def test_all_keys_are_placeholder_prefixed(self, sample_config, sample_secrets, sample_tf_outputs):
-        subs = _build_substitution_map(sample_config, sample_tf_outputs, sample_secrets)
-        for key in subs:
-            assert key.startswith("PLACEHOLDER_"), f"Key {key} missing PLACEHOLDER_ prefix"
-
-    def test_substitution_covers_all_manifest_placeholders(
-        self, sample_config, sample_secrets, sample_tf_outputs
-    ):
-        """Every PLACEHOLDER_* used in k8s/ manifests must have a substitution entry."""
-        subs = _build_substitution_map(sample_config, sample_tf_outputs, sample_secrets)
-        known_placeholders = {
-            "PLACEHOLDER_JWT_KEY",
-            "PLACEHOLDER_DB_USER",
-            "PLACEHOLDER_DB_PASSWORD",
-            "PLACEHOLDER_REDIS_PASSWORD",
-            "PLACEHOLDER_RABBITMQ_PASSWORD",
-            "PLACEHOLDER_API_SIGNING_KEY",
-            "PLACEHOLDER_DOMAIN",
-            "PLACEHOLDER_PROJECT_ID",
-            "PLACEHOLDER_REGION",
-            "PLACEHOLDER_DB_NAME",
-            "PLACEHOLDER_ACME_EMAIL",
-            "PLACEHOLDER_INSTANCE_NAME",
-            "PLACEHOLDER_CLOUDSQL_SA",
-            "PLACEHOLDER_RECORDING_BUCKET_NAME",
-            "PLACEHOLDER_RABBITMQ_USER",
-            "PLACEHOLDER_RABBITMQ_ADDRESS",
-            "PLACEHOLDER_REDIS_ADDRESS",
-            "PLACEHOLDER_STATIC_IP_NAME_API_MANAGER",
-            "PLACEHOLDER_STATIC_IP_NAME_HOOK_MANAGER",
-            "PLACEHOLDER_STATIC_IP_NAME_ADMIN",
-            "PLACEHOLDER_STATIC_IP_NAME_TALK",
-            "PLACEHOLDER_STATIC_IP_NAME_MEET",
-        }
-        for placeholder in known_placeholders:
-            assert placeholder in subs, f"Missing substitution for {placeholder}"
-
-
-class TestStaticIpPlaceholders:
-    """The 5 PLACEHOLDER_STATIC_IP_NAME_* tokens added in PR #2 of the
-    self-hosting redesign read from terraform_outputs and have safe
-    default fallbacks matching the Terraform resource names."""
-
-    def test_static_ip_tokens_from_terraform_outputs(self, sample_config, sample_secrets):
-        tf_outputs = {
-            "api_manager_static_ip_name": "api-manager-static-ip",
-            "hook_manager_static_ip_name": "hook-manager-static-ip",
-            "admin_static_ip_name": "admin-static-ip",
-            "talk_static_ip_name": "talk-static-ip",
-            "meet_static_ip_name": "meet-static-ip",
-        }
-        subs = _build_substitution_map(sample_config, tf_outputs, sample_secrets)
         assert subs["PLACEHOLDER_STATIC_IP_NAME_API_MANAGER"] == "api-manager-static-ip"
-        assert subs["PLACEHOLDER_STATIC_IP_NAME_HOOK_MANAGER"] == "hook-manager-static-ip"
-        assert subs["PLACEHOLDER_STATIC_IP_NAME_ADMIN"] == "admin-static-ip"
-        assert subs["PLACEHOLDER_STATIC_IP_NAME_TALK"] == "talk-static-ip"
-        assert subs["PLACEHOLDER_STATIC_IP_NAME_MEET"] == "meet-static-ip"
+        assert subs["PLACEHOLDER_STATIC_IP_ADDRESS_API_MANAGER"] == ""
 
-    def test_static_ip_tokens_fallback_when_tf_outputs_empty(self, sample_config, sample_secrets):
-        subs = _build_substitution_map(sample_config, {}, sample_secrets)
-        # Fallbacks match the Terraform resource names so PR #3a (which
-        # adds the annotation references) does not break if a stale
-        # state file lacks the new outputs.
-        assert subs["PLACEHOLDER_STATIC_IP_NAME_API_MANAGER"] == "api-manager-static-ip"
-        assert subs["PLACEHOLDER_STATIC_IP_NAME_HOOK_MANAGER"] == "hook-manager-static-ip"
-        assert subs["PLACEHOLDER_STATIC_IP_NAME_ADMIN"] == "admin-static-ip"
-        assert subs["PLACEHOLDER_STATIC_IP_NAME_TALK"] == "talk-static-ip"
-        assert subs["PLACEHOLDER_STATIC_IP_NAME_MEET"] == "meet-static-ip"
-
-
-class TestStaticIpAddressTokens:
-    """PR #3a adds 5 ADDRESS substitution tokens fed from Terraform
-    `*_static_ip_address` outputs. Default is empty string so that
-    `Service.spec.loadBalancerIP: ` becomes YAML null when operator
-    has not run `terraform apply` yet (the k8s_apply preflight
-    raises before this hits GCP)."""
-
-    address_tokens = (
-        "PLACEHOLDER_STATIC_IP_ADDRESS_API_MANAGER",
-        "PLACEHOLDER_STATIC_IP_ADDRESS_HOOK_MANAGER",
-        "PLACEHOLDER_STATIC_IP_ADDRESS_ADMIN",
-        "PLACEHOLDER_STATIC_IP_ADDRESS_TALK",
-        "PLACEHOLDER_STATIC_IP_ADDRESS_MEET",
-    )
-
-    def test_terraform_outputs_propagate(self, sample_config, sample_secrets):
-        tf_outputs = {
+    def test_static_ip_addresses_from_terraform(self, sample_config, sample_secrets):
+        tf = {
             "api_manager_static_ip_address": "10.0.0.1",
             "hook_manager_static_ip_address": "10.0.0.2",
             "admin_static_ip_address": "10.0.0.3",
             "talk_static_ip_address": "10.0.0.4",
             "meet_static_ip_address": "10.0.0.5",
         }
-        subs = _build_substitution_map(sample_config, tf_outputs, sample_secrets)
+        subs = _build_substitution_map(sample_config, tf, sample_secrets)
         assert subs["PLACEHOLDER_STATIC_IP_ADDRESS_API_MANAGER"] == "10.0.0.1"
-        assert subs["PLACEHOLDER_STATIC_IP_ADDRESS_HOOK_MANAGER"] == "10.0.0.2"
-        assert subs["PLACEHOLDER_STATIC_IP_ADDRESS_ADMIN"] == "10.0.0.3"
-        assert subs["PLACEHOLDER_STATIC_IP_ADDRESS_TALK"] == "10.0.0.4"
         assert subs["PLACEHOLDER_STATIC_IP_ADDRESS_MEET"] == "10.0.0.5"
 
-    def test_default_is_empty_string(self, sample_config, sample_secrets):
-        subs = _build_substitution_map(sample_config, {}, sample_secrets)
-        for token in self.address_tokens:
-            assert subs[token] == "", f"{token} default must be empty string"
-
-    def test_all_tokens_registered(self, sample_config, sample_secrets):
-        subs = _build_substitution_map(sample_config, {}, sample_secrets)
-        for token in self.address_tokens:
-            assert token in subs
+    def test_obsolete_tokens_absent(self, sample_config, sample_secrets, sample_tf_outputs):
+        subs = _build_substitution_map(sample_config, sample_tf_outputs, sample_secrets)
+        # PR #4 removed these from the schema (legacy backend Secret/ConfigMap
+        # keys no longer in 53-key voipbin Secret).
+        # Note: PLACEHOLDER_RABBITMQ_USER / PLACEHOLDER_RABBITMQ_PASSWORD remain
+        # because k8s/infrastructure/rabbitmq/secret.yaml still seeds broker
+        # bootstrap credentials (separate from the bin-* RABBITMQ_ADDRESS).
+        for obsolete in (
+            "PLACEHOLDER_DB_USER",
+            "PLACEHOLDER_DB_PASSWORD",
+            "PLACEHOLDER_DB_NAME",
+            "PLACEHOLDER_API_SIGNING_KEY",
+        ):
+            assert obsolete not in subs, f"{obsolete} should have been removed"

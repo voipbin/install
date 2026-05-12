@@ -39,10 +39,7 @@ spec:
             - "$(CLOUDSQL_CONNECTION_NAME)"
           env:
             - name: CLOUDSQL_CONNECTION_NAME
-              valueFrom:
-                configMapKeyRef:
-                  name: voipbin-config
-                  key: CLOUDSQL_CONNECTION_NAME
+              value: "PLACEHOLDER_CLOUDSQL_CONNECTION_NAME"
           ports:
             - containerPort: 3306
               name: mysql

@@ -115,6 +115,10 @@ spec:
                 configMapKeyRef:
                   name: voipbin-voip-config
                   key: DOMAIN
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
           resources:
             requests:
               cpu: "10m"

@@ -25,11 +25,61 @@ spec:
           ports:
             - containerPort: 2112
               name: metrics
-          envFrom:
-            - configMapRef:
-                name: voipbin-config
-            - secretRef:
-                name: voipbin-secret
+          env:
+            - name: DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: DATABASE_DSN_BIN
+            - name: RABBITMQ_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: RABBITMQ_ADDRESS
+            - name: REDIS_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: REDIS_ADDRESS
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: REDIS_PASSWORD
+            - name: REDIS_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: REDIS_DATABASE
+            - name: GCP_PROJECT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: GCP_PROJECT_ID
+            - name: GCP_BUCKET_NAME_TMP
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: GCP_BUCKET_NAME_TMP
+            - name: GCP_BUCKET_NAME_MEDIA
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: GCP_BUCKET_NAME_MEDIA
+            - name: JWT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: JWT_KEY
+            - name: CLICKHOUSE_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: CLICKHOUSE_ADDRESS
+            - name: PROMETHEUS_ENDPOINT
+              value: "/metrics"
+            - name: PROMETHEUS_LISTEN_ADDRESS
+              value: ":2112"
           resources:
             requests:
               cpu: "50m"

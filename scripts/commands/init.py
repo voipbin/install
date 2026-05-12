@@ -234,7 +234,9 @@ def cmd_init(
 
     # --- Step 9: Secrets ---
     print_header("Generating secrets...")
-    ok, secrets_dict = generate_and_encrypt(kms_key_id, cfg.secrets_path)
+    ok, secrets_dict = generate_and_encrypt(
+        kms_key_id, cfg.secrets_path, domain=cfg.get("domain", "")
+    )
     if ok:
         for name in secrets_dict:
             print_success(f"{name}")

@@ -18,25 +18,11 @@ spec:
         - name: migration
           image: voipbin/bin-database
           env:
-            - name: DB_HOST
-              value: "cloudsql-proxy.infrastructure.svc.cluster.local"
-            - name: DB_PORT
-              value: "3306"
-            - name: DB_USER
+            - name: DATABASE_DSN
               valueFrom:
                 secretKeyRef:
-                  name: voipbin-secret
-                  key: DB_USER
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: voipbin-secret
-                  key: DB_PASSWORD
-            - name: DB_NAME
-              valueFrom:
-                configMapKeyRef:
-                  name: voipbin-config
-                  key: DB_NAME
+                  name: voipbin
+                  key: DATABASE_DSN_BIN
           resources:
             requests:
               cpu: "50m"
