@@ -40,6 +40,7 @@ def run_cmd(
     check: bool = False,
     timeout: int = 300,
     cwd: Optional[Path] = None,
+    env: Optional[dict[str, str]] = None,
 ) -> subprocess.CompletedProcess:
     """Run a command and return the CompletedProcess result.
 
@@ -50,6 +51,10 @@ def run_cmd(
     (the coreutils timeout convention) and a clear stderr message rather
     than letting subprocess.TimeoutExpired propagate. Callers that already
     check result.returncode will handle timeouts uniformly.
+
+    When env is provided, it is passed verbatim to subprocess.run (which
+    means it REPLACES the parent environment). Callers wanting to add
+    variables should copy os.environ first.
     """
     if isinstance(cmd, str):
         args = shlex.split(cmd)
@@ -63,6 +68,7 @@ def run_cmd(
             check=check,
             timeout=timeout,
             cwd=cwd,
+            env=env,
         )
     except subprocess.TimeoutExpired as exc:
         partial_stdout = exc.stdout if isinstance(exc.stdout, str) else ""
