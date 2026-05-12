@@ -20,6 +20,13 @@ from config.schema import CONFIG_SCHEMA
 INSTALLER_VERSION = "1.0.0"
 
 
+# Keys that must be set (non-empty, non-None) before `build_registry()` can
+# safely construct reconcile entries. Missing any of these results in
+# `"None"` literals leaking into tf_address / import_id / gcloud argvs
+# (GAP-35 shape). See PR-L design doc.
+RECONCILE_REQUIRED_KEYS: tuple[str, ...] = ("gcp_project_id", "region", "env")
+
+
 class InstallerConfig:
     """Manages config.yaml (non-sensitive) for VoIPBin installer."""
 
@@ -68,6 +75,25 @@ class InstallerConfig:
 
     def set_many(self, values: dict[str, Any]) -> None:
         self._data.update(values)
+
+    def assert_required(self, keys: tuple[str, ...]) -> None:
+        """Hard-fail if any of ``keys`` is missing/None/empty.
+
+        Used by ``terraform_reconcile.build_registry()`` to refuse to
+        construct entries when required substitutions (env, project, region)
+        are absent — the GAP-35 failure mode.
+        """
+        # Local import to avoid module-level circular dependency between
+        # config and terraform_reconcile (the latter imports the former).
+        from scripts.terraform_reconcile import ReconcileRegistryError
+
+        missing = [k for k in keys if not self.get(k)]
+        if missing:
+            raise ReconcileRegistryError(
+                f"Missing required config keys for reconcile: {', '.join(missing)}. "
+                f"Hint: run 'voipbin-install init --reconfigure' to set them."
+            )
+
 
     def validate(self) -> list[str]:
         """Validate config against schema. Returns list of error messages."""

@@ -58,6 +58,7 @@ def _make_config():
         "gcp_project_id": "my-project",
         "region": "us-central1",
         "zone": "us-central1-a",
+        "env": "test",
         "kamailio_count": 1,
         "rtpengine_count": 1,
     })
