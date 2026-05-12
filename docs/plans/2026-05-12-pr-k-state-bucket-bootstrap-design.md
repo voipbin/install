@@ -249,3 +249,41 @@ Findings:
   `*.py` files outside the three touched modules → 0 hits.
 
 Both review rounds resolved. Proceed to implementation.
+
+
+## Post-review fixes (R2)
+
+R2 operational review surfaced three issues; all addressed in a follow-up
+commit without changing the public API of `ensure_state_bucket` /
+`state_bucket_name`.
+
+1. **Create race / 409 handling.** Two parallel `voipbin-install apply`
+   runs can TOCTOU between describe and create. The loser's
+   `gcloud storage buckets create` returns nonzero with HTTP 409 /
+   `AlreadyOwnedByYou` / `already exists`. We now detect those markers in
+   `create.stderr`, re-run `buckets describe` to confirm existence, and on
+   confirmation continue into the versioning step instead of aborting.
+   A `print_warning` records that the race was handled.
+
+2. **Unconditional versioning.** Previously, if the first run created the
+   bucket but failed at `--versioning`, the function returned False; a
+   second run found the bucket via describe and returned True without
+   ever enabling versioning, silently violating the contract. The
+   `gcloud storage buckets update --versioning` call is now run on BOTH
+   paths (existed and just-created); the update is idempotent so re-apply
+   is a no-op when versioning is already enabled. Every successful return
+   now guarantees versioning is on.
+
+3. **IAM 403 actionable error.** When ADC lacks
+   `storage.buckets.create` (or `.get` / `.update`), gcloud stderr alone
+   gives no remediation. On create/update failure we now print, in
+   addition to the raw stderr, a single-line hint:
+   `Grant 'roles/storage.admin' to the active ADC principal:
+   gcloud auth list`. The same hint is emitted as a warning when the
+   describe step itself returns a 403-shaped error (vs. a 404 / not
+   found, which is the expected "bucket missing" signal).
+
+Seven new tests in `tests/test_pr_k_state_bucket_bootstrap.py` exercise
+each branch; `test_idempotent_when_bucket_exists` was updated to expect
+two `run_cmd` calls (describe + idempotent versioning update) instead of
+one.

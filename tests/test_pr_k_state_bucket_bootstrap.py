@@ -45,12 +45,20 @@ class TestEnsureStateBucket:
     def test_idempotent_when_bucket_exists(self):
         cfg = _make_config()
         describe = MagicMock(returncode=0, stdout="", stderr="")
-        with patch("scripts.state_bucket.run_cmd", return_value=describe) as mock_run:
+        update = MagicMock(returncode=0, stdout="", stderr="")
+        with patch("scripts.state_bucket.run_cmd",
+                   side_effect=[describe, update]) as mock_run:
             assert ensure_state_bucket(cfg) is True
-        # exactly one describe call, no create
-        assert mock_run.call_count == 1
+        # describe + idempotent versioning update; no create.
+        assert mock_run.call_count == 2
         args = mock_run.call_args_list[0].args[0]
         assert args[:4] == ["gcloud", "storage", "buckets", "describe"]
+        update_args = mock_run.call_args_list[1].args[0]
+        assert update_args[:4] == ["gcloud", "storage", "buckets", "update"]
+        assert "--versioning" in update_args
+        # no create call ever
+        for call in mock_run.call_args_list:
+            assert call.args[0][:4] != ["gcloud", "storage", "buckets", "create"]
 
     def test_creates_bucket_with_correct_flags(self):
         cfg = _make_config()
@@ -97,6 +105,109 @@ class TestEnsureStateBucket:
         with patch("scripts.state_bucket.run_cmd",
                    side_effect=[describe, create, update]):
             assert ensure_state_bucket(cfg) is False
+
+    # ---- R2 review fixes ----
+
+    def test_create_race_recovered_when_409(self):
+        cfg = _make_config()
+        describe = MagicMock(returncode=1, stdout="", stderr="not found")
+        create = MagicMock(
+            returncode=1, stdout="",
+            stderr="HTTPError 409: AlreadyOwnedByYou",
+        )
+        recheck = MagicMock(returncode=0, stdout="", stderr="")
+        update = MagicMock(returncode=0, stdout="", stderr="")
+        with patch("scripts.state_bucket.run_cmd",
+                   side_effect=[describe, create, recheck, update]) as mock_run:
+            assert ensure_state_bucket(cfg) is True
+        # describe, create, re-describe, versioning update
+        assert mock_run.call_count == 4
+        update_args = mock_run.call_args_list[3].args[0]
+        assert update_args[:4] == ["gcloud", "storage", "buckets", "update"]
+        assert "--versioning" in update_args
+
+    def test_create_race_recovered_when_already_exists_substring(self):
+        cfg = _make_config()
+        describe = MagicMock(returncode=1, stderr="not found")
+        create = MagicMock(returncode=1, stderr="bucket already exists")
+        recheck = MagicMock(returncode=0)
+        update = MagicMock(returncode=0)
+        with patch("scripts.state_bucket.run_cmd",
+                   side_effect=[describe, create, recheck, update]) as mock_run:
+            assert ensure_state_bucket(cfg) is True
+        assert mock_run.call_count == 4
+        # versioning still applied
+        update_args = mock_run.call_args_list[3].args[0]
+        assert "--versioning" in update_args
+
+    def test_create_failure_other_than_race_still_returns_false(self):
+        cfg = _make_config()
+        describe = MagicMock(returncode=1, stderr="not found")
+        create = MagicMock(returncode=1, stderr="quota exceeded")
+        with patch("scripts.state_bucket.run_cmd",
+                   side_effect=[describe, create]) as mock_run:
+            assert ensure_state_bucket(cfg) is False
+        # describe + create only; no recheck, no update
+        assert mock_run.call_count == 2
+
+    def test_versioning_runs_on_existing_bucket_path(self):
+        cfg = _make_config()
+        describe = MagicMock(returncode=0, stderr="")
+        update = MagicMock(returncode=0)
+        with patch("scripts.state_bucket.run_cmd",
+                   side_effect=[describe, update]) as mock_run:
+            assert ensure_state_bucket(cfg) is True
+        assert mock_run.call_count == 2
+        update_args = mock_run.call_args_list[1].args[0]
+        assert update_args[:4] == ["gcloud", "storage", "buckets", "update"]
+        assert "--versioning" in update_args
+
+    def test_versioning_runs_on_created_bucket_path(self):
+        cfg = _make_config()
+        describe = MagicMock(returncode=1, stderr="not found")
+        create = MagicMock(returncode=0)
+        update = MagicMock(returncode=0)
+        with patch("scripts.state_bucket.run_cmd",
+                   side_effect=[describe, create, update]) as mock_run:
+            assert ensure_state_bucket(cfg) is True
+        assert mock_run.call_count == 3
+        update_args = mock_run.call_args_list[2].args[0]
+        assert update_args[:4] == ["gcloud", "storage", "buckets", "update"]
+        assert "--versioning" in update_args
+
+    def test_iam_403_error_emits_hint_on_create(self):
+        cfg = _make_config()
+        describe = MagicMock(returncode=1, stderr="not found")
+        create = MagicMock(
+            returncode=1,
+            stderr="HTTPError 403: PERMISSION_DENIED storage.buckets.create",
+        )
+        with patch("scripts.state_bucket.run_cmd",
+                   side_effect=[describe, create]), \
+             patch("scripts.state_bucket.print_error") as mock_err:
+            assert ensure_state_bucket(cfg) is False
+        messages = " | ".join(c.args[0] for c in mock_err.call_args_list)
+        assert "roles/storage.admin" in messages
+
+    def test_iam_403_error_emits_hint_on_describe(self):
+        cfg = _make_config()
+        # describe fails with 403 (not a 404), then create also fails with 403
+        describe = MagicMock(
+            returncode=1,
+            stderr="HTTPError 403: does not have storage.buckets.get",
+        )
+        create = MagicMock(
+            returncode=1,
+            stderr="HTTPError 403: PERMISSION_DENIED",
+        )
+        with patch("scripts.state_bucket.run_cmd",
+                   side_effect=[describe, create]), \
+             patch("scripts.state_bucket.print_warning") as mock_warn, \
+             patch("scripts.state_bucket.print_error") as mock_err:
+            assert ensure_state_bucket(cfg) is False
+        warn_msgs = " | ".join(c.args[0] for c in mock_warn.call_args_list)
+        err_msgs = " | ".join(c.args[0] for c in mock_err.call_args_list)
+        assert "roles/storage.admin" in (warn_msgs + " | " + err_msgs)
 
 
 class TestTerraformInitWiring:
