@@ -82,6 +82,21 @@ CONFIG_SCHEMA = {
                 "NetworkPolicies. Defaults to <cloudsql_private_ip>/32."
             ),
         },
+        "recordings_bucket": {
+            "type": "string",
+            "description": (
+                "Name of the GCS bucket for call recordings. Auto-populated "
+                "from Terraform output `recordings_bucket_name` by "
+                "reconcile_outputs; operator override respected."
+            ),
+        },
+        "tmp_bucket": {
+            "type": "string",
+            "description": (
+                "Name of the GCS bucket for disposable tmp media (7-day TTL). "
+                "Auto-populated from Terraform output `tmp_bucket_name`."
+            ),
+        },
     },
     "additionalProperties": False,
 }

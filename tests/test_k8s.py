@@ -38,7 +38,8 @@ def sample_secrets():
 def sample_tf_outputs():
     return {
         "cloudsql_instance_name": "prod-mysql",
-        "recording_bucket_name": "my-project-123-recordings",
+        "recordings_bucket_name": "my-project-123-recordings",
+        "tmp_bucket_name": "my-project-123-tmp",
     }
 
 
@@ -80,7 +81,8 @@ class TestBuildSubstitutionMap:
 
     def test_terraform_outputs_mapped(self, sample_config, sample_secrets, sample_tf_outputs):
         subs = _build_substitution_map(sample_config, sample_tf_outputs, sample_secrets)
-        assert subs["PLACEHOLDER_RECORDING_BUCKET_NAME"] == "my-project-123-recordings"
+        assert subs["PLACEHOLDER_RECORDINGS_BUCKET"] == "my-project-123-recordings"
+        assert subs["PLACEHOLDER_TMP_BUCKET"] == "my-project-123-tmp"
 
     def test_cloudsql_private_ip_placeholder(self, sample_secrets, sample_tf_outputs):
         cfg = FakeConfig({

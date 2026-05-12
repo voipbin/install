@@ -4,6 +4,7 @@ Detects GCP resources that exist outside Terraform state and imports them
 before terraform apply runs, making deployments resumable without 409 errors.
 """
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -22,6 +23,16 @@ _NOT_FOUND_PHRASES = ("not found", "notfound", "not_found", "does not exist", "4
 
 def _always_valid(v: Any) -> bool:
     return True
+
+
+# GCS bucket naming rules (simple form): lowercase letters, digits, dots,
+# hyphens, underscores; must start/end with alphanumeric; length 3..63.
+# See: https://cloud.google.com/storage/docs/buckets#naming
+_GCS_BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$")
+
+
+def _is_valid_bucket_name(v: Any) -> bool:
+    return isinstance(v, str) and bool(_GCS_BUCKET_RE.match(v))
 
 
 def check_exists_in_gcp(check_cmd: list[str]) -> tuple[bool, bool]:
@@ -306,6 +317,22 @@ def build_registry(config: InstallerConfig) -> list[dict[str, Any]]:
                          f"gs://{project}-voipbin-tf-state", f"--project={project}"],
         "import_id":    f"{project}-voipbin-tf-state",
     })
+    entries.append({
+        "tf_address":   "google_storage_bucket.recordings",
+        "description":  "GCS Recordings Bucket",
+        "gcloud_check": ["gcloud", "storage", "buckets", "describe",
+                         f"gs://{config.get('env')}-voipbin-recordings",
+                         f"--project={project}"],
+        "import_id":    f"{config.get('env')}-voipbin-recordings",
+    })
+    entries.append({
+        "tf_address":   "google_storage_bucket.tmp",
+        "description":  "GCS Tmp Bucket",
+        "gcloud_check": ["gcloud", "storage", "buckets", "describe",
+                         f"gs://{config.get('env')}-voipbin-tmp",
+                         f"--project={project}"],
+        "import_id":    f"{config.get('env')}-voipbin-tmp",
+    })
 
     # -- Cloud SQL (instance first, then database and user) -------------
     entries.append({
@@ -456,8 +483,19 @@ class TfOutputFieldMapping:
     validator: Callable[[Any], bool] = _always_valid
 
 
-# PRs C/D/G append entries; PR-A ships empty.
-FIELD_MAP: list[TfOutputFieldMapping] = []
+# PRs C/D append further entries; PR-G adds the GCS bucket fields below.
+FIELD_MAP: list[TfOutputFieldMapping] = [
+    TfOutputFieldMapping(
+        tf_key="recordings_bucket_name",
+        cfg_key="recordings_bucket",
+        validator=_is_valid_bucket_name,
+    ),
+    TfOutputFieldMapping(
+        tf_key="tmp_bucket_name",
+        cfg_key="tmp_bucket",
+        validator=_is_valid_bucket_name,
+    ),
+]
 
 
 def outputs(config: InstallerConfig, tf_outputs: dict[str, Any]) -> bool:

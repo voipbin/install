@@ -201,3 +201,17 @@ output "meet_static_ip_address" {
   description = "Reserved static-IP address for meet"
   value       = google_compute_address.external_service["meet"].address
 }
+
+###############################################################################
+# GCS Storage Buckets (PR-G)
+###############################################################################
+
+output "recordings_bucket_name" {
+  description = "Name of the call-recordings GCS bucket"
+  value       = google_storage_bucket.recordings.name
+}
+
+output "tmp_bucket_name" {
+  description = "Name of the disposable tmp GCS bucket (7-day TTL)"
+  value       = google_storage_bucket.tmp.name
+}
