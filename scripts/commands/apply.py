@@ -72,8 +72,10 @@ def cmd_apply(
             print_error(f"  {err}")
         sys.exit(1)
 
-    # Validate --stage option
-    if stage and stage not in APPLY_STAGES:
+    # Validate --stage option (`terraform_reconcile` is a deprecated alias
+    # that expands to both `reconcile_imports` and `reconcile_outputs` inside
+    # run_pipeline, so it is also accepted here.)
+    if stage and stage not in APPLY_STAGES and stage != "terraform_reconcile":
         valid = ", ".join(APPLY_STAGES)
         print_error(f"Unknown stage: {stage}")
         print_step(f"Valid stages: {valid}")
