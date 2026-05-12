@@ -84,6 +84,43 @@ output "cloudsql_postgres_private_ip" {
 }
 
 ###############################################################################
+# Cloud SQL application passwords (PR-D2a)
+###############################################################################
+# Sensitive outputs. Programmatic use ONLY — do NOT run `terraform output -json`
+# interactively (the shell history captures the plaintext). PR-D2b will pipe
+# these into scripts/k8s.py substitution map directly.
+
+output "cloudsql_mysql_password_bin_manager" {
+  description = "Random password for the bin-manager MySQL application user."
+  value       = random_password.mysql_bin_manager.result
+  sensitive   = true
+}
+
+output "cloudsql_mysql_password_asterisk" {
+  description = "Random password for the asterisk MySQL application user."
+  value       = random_password.mysql_asterisk.result
+  sensitive   = true
+}
+
+output "cloudsql_mysql_password_call_manager" {
+  description = "Random password for the call-manager MySQL application user."
+  value       = random_password.mysql_call_manager.result
+  sensitive   = true
+}
+
+output "cloudsql_mysql_password_kamailioro" {
+  description = "Random password for the kamailioro MySQL application user (network-pinned)."
+  value       = random_password.mysql_kamailioro.result
+  sensitive   = true
+}
+
+output "cloudsql_postgres_password_bin_manager" {
+  description = "Random password for the bin-manager Postgres application user."
+  value       = random_password.postgres_bin_manager.result
+  sensitive   = true
+}
+
+###############################################################################
 # Load Balancers
 ###############################################################################
 

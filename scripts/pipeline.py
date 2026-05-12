@@ -171,6 +171,21 @@ def _run_terraform_apply(
     dry_run: bool,
     auto_approve: bool,
 ) -> bool:
+    # PR-D2a destroy-safety gate: prevent accidental loss of the legacy
+    # `voipbin` MySQL database (PR-D1 leftover). Skipped on dry_run.
+    if not dry_run:
+        from scripts.preflight import (
+            PreflightError,
+            check_legacy_voipbin_destroy_safety,
+        )
+        try:
+            check_legacy_voipbin_destroy_safety(
+                config,
+                force=getattr(config, "force_destroy_legacy_voipbin", False),
+            )
+        except PreflightError as exc:
+            print_error(str(exc))
+            return False
     if dry_run:
         return terraform_plan(config)
     return terraform_apply(config, auto_approve=auto_approve)

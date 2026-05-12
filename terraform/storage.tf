@@ -84,7 +84,7 @@ resource "google_storage_bucket" "media" {
   # Lifecycle policy: delete temp files after 90 days
   lifecycle_rule {
     condition {
-      age          = 90
+      age            = 90
       matches_prefix = ["tmp/"]
     }
     action {

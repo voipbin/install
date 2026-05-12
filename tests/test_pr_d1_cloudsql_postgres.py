@@ -90,11 +90,12 @@ class TestPostgresInstanceResource:
             "so it shares the allocation with MySQL."
         )
 
-    def test_ssl_mode_encrypted_only(self):
+    def test_ssl_mode_allows_unencrypted_for_production_parity(self):
         block = _postgres_instance_block()
-        assert re.search(r'ssl_mode\s*=\s*"ENCRYPTED_ONLY"', block), (
-            "ssl_mode must be the literal string ENCRYPTED_ONLY. Postgres "
-            "has no legacy require_ssl field; the test must assert the "
+        assert re.search(r'ssl_mode\s*=\s*"ALLOW_UNENCRYPTED_AND_ENCRYPTED"', block), (
+            "PR-D2a loosened Postgres ssl_mode to ALLOW_UNENCRYPTED_AND_ENCRYPTED "
+            "for production parity (see docs/security/cis-deviations.md). "
+            "Postgres has no legacy require_ssl field; the test must assert the "
             "explicit string."
         )
 

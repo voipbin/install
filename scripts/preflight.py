@@ -41,6 +41,65 @@ def check_cloudsql_private_ip(config) -> None:
         )
 
 
+def check_legacy_voipbin_destroy_safety(config, force: bool = False) -> None:
+    """PR-D2a: guard against destroying the legacy `voipbin` MySQL database.
+
+    PR-D1 created `google_sql_database.voipbin` + `google_sql_user.voipbin`.
+    PR-D2a destroys both and replaces with per-app `bin_manager` / `asterisk`
+    databases and per-app users. The destroy is safe on dev (no consumer
+    authenticates as MySQL user `voipbin`, audit-verified 2026-05-12 across
+    install repo + monorepo). On an upgraded environment where someone
+    out-of-band created data in the legacy db, the destroy could lose data.
+
+    Probe with `gcloud sql databases describe voipbin --instance=voipbin-mysql`.
+    - rc != 0 → legacy db is gone (or unreachable) → return silently (fresh
+      cluster path, OR post-D2a path where the db is already destroyed).
+    - rc == 0 → legacy db exists → raise PreflightError unless `force=True`.
+
+    Soft-skips: ``force=True`` short-circuits at entry; missing
+    ``gcp_project_id`` short-circuits (cannot probe gcloud at all).
+
+    Args:
+        config: InstallerConfig-like, must support ``.get(key, default)``.
+        force: when True, the check returns immediately. Equivalent to the
+               operator passing ``--force-destroy-legacy-voipbin``.
+
+    Raises:
+        PreflightError: when the legacy database is observably present and
+                        ``force`` is False.
+    """
+    if force:
+        return
+
+    project = (config.get("gcp_project_id", "") or "").strip()
+    if not project:
+        # Without a project id we cannot probe Cloud SQL. Later pipeline
+        # stages will fail loudly with more actionable errors.
+        return
+
+    proc = run_cmd(
+        [
+            "gcloud", "sql", "databases", "describe", "voipbin",
+            "--instance=voipbin-mysql", f"--project={project}",
+            "--format=value(name)",
+        ],
+        capture=True,
+    )
+    if proc.returncode != 0:
+        # Either the db is gone (clean post-D2a / fresh install) or gcloud
+        # could not reach it. Either way, no destroy-safety block.
+        return
+
+    raise PreflightError(
+        "The legacy `voipbin` MySQL database still exists on this project. "
+        "PR-D2 destroys it and replaces with per-app databases "
+        "(`bin_manager`, `asterisk`). On the common dev path the legacy "
+        "database is from PR-D1 and is empty; re-run with "
+        "`voipbin-install apply --force-destroy-legacy-voipbin` to opt in. "
+        "See docs/operations/cloud-sql-credentials.md."
+    )
+
+
 @dataclass
 class PreflightResult:
     tool: str

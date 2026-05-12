@@ -54,6 +54,7 @@ def cmd_apply(
     auto_approve: bool = False,
     dry_run: bool = False,
     stage: Optional[str] = None,
+    force_destroy_legacy_voipbin: bool = False,
 ) -> None:
     """Run the full deployment pipeline."""
     print_banner()
@@ -65,6 +66,11 @@ def cmd_apply(
         sys.exit(1)
 
     config.load()
+    # PR-D2a: stash operator-supplied destroy-safety override on the loaded
+    # config instance BEFORE run_pipeline reads it. The attribute is set on
+    # the InstallerConfig object only (NOT persisted to config.yaml — the
+    # flag is a per-invocation decision, not a stored preference).
+    config.force_destroy_legacy_voipbin = force_destroy_legacy_voipbin
     errors = config.validate()
     if errors:
         print_error("Configuration is invalid:")
