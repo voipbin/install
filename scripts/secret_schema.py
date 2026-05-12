@@ -45,22 +45,22 @@ BIN_SECRET_KEYS: dict[str, dict[str, str]] = {
     "CLICKHOUSE_DATABASE": {"default": "default", "class": "config"},
     "DATABASE_DSN_ASTERISK": {
         "default": (
-            "asterisk:dummy-password@tcp("
-            "PLACEHOLDER_CLOUDSQL_PRIVATE_IP:3306)/asterisk"
+            "asterisk:PLACEHOLDER_DSN_PASSWORD_MYSQL_ASTERISK@tcp("
+            "PLACEHOLDER_CLOUDSQL_MYSQL_PRIVATE_IP:3306)/asterisk"
         ),
         "class": "dsn",
     },
     "DATABASE_DSN_BIN": {
         "default": (
-            "bin-manager:dummy-password@tcp("
-            "PLACEHOLDER_CLOUDSQL_PRIVATE_IP:3306)/bin_manager"
+            "bin-manager:PLACEHOLDER_DSN_PASSWORD_MYSQL_BIN_MANAGER@tcp("
+            "PLACEHOLDER_CLOUDSQL_MYSQL_PRIVATE_IP:3306)/bin_manager"
         ),
         "class": "dsn",
     },
     "DATABASE_DSN_POSTGRES": {
         "default": (
-            "postgres://bin-manager:dummy-password@"
-            "PLACEHOLDER_CLOUDSQL_PRIVATE_IP:5432/"
+            "postgres://bin-manager:PLACEHOLDER_DSN_PASSWORD_POSTGRES_BIN_MANAGER@"
+            "PLACEHOLDER_CLOUDSQL_POSTGRES_PRIVATE_IP:5432/"
             "bin_manager?sslmode=disable"
         ),
         "class": "dsn",

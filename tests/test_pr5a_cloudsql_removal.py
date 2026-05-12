@@ -59,13 +59,29 @@ def rendered_yaml() -> str:
         timeout=60,
     )
     rendered = proc.stdout
-    # Apply the two placeholders this PR introduces.
+    # PR #5a's two placeholders, then PR-D2b's new MySQL/Postgres IPs and the
+    # 5 application-user password placeholders. We substitute test stand-ins
+    # so the rendered DSNs are placeholder-free (the assertion below).
     rendered = rendered.replace(
         "PLACEHOLDER_CLOUDSQL_PRIVATE_IP_CIDR", TEST_PRIVATE_IP_CIDR
     )
     rendered = rendered.replace(
+        "PLACEHOLDER_CLOUDSQL_MYSQL_PRIVATE_IP", TEST_PRIVATE_IP
+    )
+    rendered = rendered.replace(
+        "PLACEHOLDER_CLOUDSQL_POSTGRES_PRIVATE_IP", TEST_PRIVATE_IP
+    )
+    rendered = rendered.replace(
         "PLACEHOLDER_CLOUDSQL_PRIVATE_IP", TEST_PRIVATE_IP
     )
+    for token in (
+        "PLACEHOLDER_DSN_PASSWORD_MYSQL_BIN_MANAGER",
+        "PLACEHOLDER_DSN_PASSWORD_MYSQL_ASTERISK",
+        "PLACEHOLDER_DSN_PASSWORD_MYSQL_CALL_MANAGER",
+        "PLACEHOLDER_DSN_PASSWORD_MYSQL_KAMAILIORO",
+        "PLACEHOLDER_DSN_PASSWORD_POSTGRES_BIN_MANAGER",
+    ):
+        rendered = rendered.replace(token, "TestPwd-Sample24chars!")
     return rendered
 
 
