@@ -64,6 +64,10 @@ def _build_substitution_map(
         "PLACEHOLDER_CLOUDSQL_SA": terraform_outputs.get(
             "cloudsql_proxy_sa_name", "voipbin-cloudsql-proxy"
         ),
+        "PLACEHOLDER_CLOUDSQL_CONNECTION_NAME": (
+            f"{project_id}:{config.get('region', '')}:"
+            f"{terraform_outputs.get('cloudsql_instance_name', 'voipbin-mysql')}"
+        ),
         "PLACEHOLDER_RECORDING_BUCKET_NAME": terraform_outputs.get(
             "recording_bucket_name", f"{project_id}-voipbin-recordings"
         ),
