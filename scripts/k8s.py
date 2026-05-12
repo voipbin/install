@@ -71,8 +71,11 @@ def _build_substitution_map(
         # config.yaml rabbitmq_user / secrets.yaml rabbitmq_password.
         "PLACEHOLDER_RABBITMQ_USER": config.get("rabbitmq_user", "guest"),
         "PLACEHOLDER_RABBITMQ_PASSWORD": secrets.get("rabbitmq_password", "guest"),
-        "PLACEHOLDER_RECORDING_BUCKET_NAME": terraform_outputs.get(
-            "recording_bucket_name", f"{project_id}-voipbin-recordings"
+        "PLACEHOLDER_RECORDINGS_BUCKET": terraform_outputs.get(
+            "recordings_bucket_name", config.get("recordings_bucket", "")
+        ),
+        "PLACEHOLDER_TMP_BUCKET": terraform_outputs.get(
+            "tmp_bucket_name", config.get("tmp_bucket", "")
         ),
         # External Service static IPs (PR #10/#11).
         "PLACEHOLDER_STATIC_IP_NAME_API_MANAGER": terraform_outputs.get(
