@@ -191,6 +191,34 @@ def build_registry(config: InstallerConfig) -> list[dict[str, Any]]:
             "import_id":    f"projects/{project}/regions/{region}/addresses/{gcp_name}",
         })
 
+    # -- External service static IPs (PR #2 reservations) ---------------
+    # These five regional EXTERNAL addresses back the api-manager,
+    # hook-manager, admin, talk, and meet Service annotations. PR #2
+    # introduced the for_each but did not register them here; PR-B
+    # closes GAP-10 so partial-apply failures can be resumed.
+    for key in ("api-manager", "hook-manager", "admin", "talk", "meet"):
+        gcp_name = f"{key}-static-ip"
+        entries.append({
+            "tf_address":   f'google_compute_address.external_service["{key}"]',
+            "description":  f"External Service Static IP ({key})",
+            "gcloud_check": ["gcloud", "compute", "addresses", "describe", gcp_name,
+                             f"--region={region}", f"--project={project}"],
+            "import_id":    f"projects/{project}/regions/{region}/addresses/{gcp_name}",
+        })
+
+    # -- VPC peering reserved range (PR-B) ------------------------------
+    # google_service_networking_connection.voipbin is intentionally NOT
+    # registered: `gcloud services vpc-peerings list` returns rc=0 with
+    # empty stdout on absence, which would false-positive the rc==0
+    # heuristic in check_exists_in_gcp. See design §2.4 / §4.
+    entries.append({
+        "tf_address":   "google_compute_global_address.cloudsql_peering",
+        "description":  "VPC Peering Reserved Range",
+        "gcloud_check": ["gcloud", "compute", "addresses", "describe", "voipbin-cloudsql-peering",
+                         "--global", f"--project={project}"],
+        "import_id":    f"projects/{project}/global/addresses/voipbin-cloudsql-peering",
+    })
+
     # -- Health checks ---------------------------------------------------
     entries.append({
         "tf_address":   "google_compute_http_health_check.kamailio_external",

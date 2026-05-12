@@ -26,3 +26,24 @@ resource "google_compute_subnetwork" "voipbin_main" {
 
   private_ip_google_access = true
 }
+
+# Reserved IP range for VPC peering with Google managed services.
+# Matches production's /20 prefix on google-managed-services-default.
+resource "google_compute_global_address" "cloudsql_peering" {
+  name          = "${var.env}-cloudsql-peering"
+  purpose       = "VPC_PEERING"
+  address_type  = "INTERNAL"
+  prefix_length = var.cloudsql_peering_prefix_length
+  network       = google_compute_network.voipbin.id
+
+  depends_on = [time_sleep.api_propagation]
+}
+
+# Service Networking connection enables VPC peering with Google managed
+# services (Cloud SQL Private IP, Memorystore, etc.).
+resource "google_service_networking_connection" "voipbin" {
+  network                 = google_compute_network.voipbin.id
+  service                 = "servicenetworking.googleapis.com"
+  reserved_peering_ranges = [google_compute_global_address.cloudsql_peering.name]
+  deletion_policy         = "ABANDON"
+}

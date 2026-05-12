@@ -124,6 +124,11 @@ output "subnet_cidr" {
   value       = google_compute_subnetwork.voipbin_main.ip_cidr_range
 }
 
+output "cloudsql_peering_range_cidr" {
+  description = "CIDR of the reserved VPC-peering range. PR-C reconcile_outputs writes this into config.cloudsql_private_ip_cidr."
+  value       = "${google_compute_global_address.cloudsql_peering.address}/${google_compute_global_address.cloudsql_peering.prefix_length}"
+}
+
 ###############################################################################
 # Project Info
 ###############################################################################

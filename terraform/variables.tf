@@ -88,3 +88,14 @@ variable "env" {
   type        = string
   default     = "voipbin"
 }
+
+variable "cloudsql_peering_prefix_length" {
+  description = "Prefix length for the VPC-peering reserved IP range used by Cloud SQL Private IP. Default 20 matches production."
+  type        = number
+  default     = 20
+
+  validation {
+    condition     = var.cloudsql_peering_prefix_length >= 8 && var.cloudsql_peering_prefix_length <= 29
+    error_message = "cloudsql_peering_prefix_length must be between 8 and 29."
+  }
+}
