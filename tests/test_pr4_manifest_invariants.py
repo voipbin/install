@@ -281,3 +281,49 @@ def test_tls_bootstrap_seeds_secrets_yaml():
         assert needle in text.lower(), (
             f"tls_bootstrap test file is missing scenario keyword '{needle}'"
         )
+
+
+def test_all_placeholder_tokens_resolved():
+    """No unresolved PLACEHOLDER_* tokens in any k8s/ raw manifest file.
+
+    This is a safety net: every PLACEHOLDER_* token referenced anywhere
+    under k8s/ must be present in scripts/k8s.py _build_substitution_map().
+    Catches regressions like the cloudsql-proxy CLOUDSQL_CONNECTION_NAME
+    and rabbitmq RABBITMQ_USER/PASSWORD dangling-reference bugs.
+    """
+    import re
+
+    from scripts.config import InstallerConfig
+    from scripts.k8s import _build_substitution_map
+
+    # Build a representative substitution map (with dummy fallbacks).
+    config = InstallerConfig()
+    config.set_many({
+        "domain": "example.com",
+        "region": "us-central1",
+        "gcp_project_id": "example-proj",
+        "rabbitmq_user": "guest",
+    })
+    secrets = {
+        "rabbitmq_user": "guest",
+        "rabbitmq_password": "guest",
+        "redis_password": "",
+    }
+    terraform_outputs = {
+        "cloudsql_instance_name": "voipbin-mysql",
+    }
+    subs = _build_substitution_map(config, terraform_outputs, secrets)
+
+    # Collect every PLACEHOLDER_* token from raw k8s/ files.
+    repo_root = Path(__file__).resolve().parent.parent
+    k8s_dir = repo_root / "k8s"
+    pattern = re.compile(r"PLACEHOLDER_[A-Z0-9_]+")
+    used: set[str] = set()
+    for path in k8s_dir.rglob("*.yaml"):
+        used.update(pattern.findall(path.read_text()))
+
+    missing = sorted(used - set(subs.keys()))
+    assert not missing, (
+        f"PLACEHOLDER tokens referenced in k8s/ but missing from "
+        f"_build_substitution_map(): {missing}"
+    )

@@ -104,10 +104,12 @@ class TestBuildSubstitutionMap:
 
     def test_obsolete_tokens_absent(self, sample_config, sample_secrets, sample_tf_outputs):
         subs = _build_substitution_map(sample_config, sample_tf_outputs, sample_secrets)
-        # PR #4 removed these from the schema.
+        # PR #4 removed these from the schema (legacy backend Secret/ConfigMap
+        # keys no longer in 53-key voipbin Secret).
+        # Note: PLACEHOLDER_RABBITMQ_USER / PLACEHOLDER_RABBITMQ_PASSWORD remain
+        # because k8s/infrastructure/rabbitmq/secret.yaml still seeds broker
+        # bootstrap credentials (separate from the bin-* RABBITMQ_ADDRESS).
         for obsolete in (
-            "PLACEHOLDER_RABBITMQ_USER",
-            "PLACEHOLDER_RABBITMQ_PASSWORD",
             "PLACEHOLDER_DB_USER",
             "PLACEHOLDER_DB_PASSWORD",
             "PLACEHOLDER_DB_NAME",

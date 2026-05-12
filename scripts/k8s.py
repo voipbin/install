@@ -68,6 +68,11 @@ def _build_substitution_map(
             f"{project_id}:{config.get('region', '')}:"
             f"{terraform_outputs.get('cloudsql_instance_name', 'voipbin-mysql')}"
         ),
+        # RabbitMQ broker bootstrap credentials. Default user/pass is
+        # `guest`/`guest` to match production. Operator may override via
+        # config.yaml rabbitmq_user / secrets.yaml rabbitmq_password.
+        "PLACEHOLDER_RABBITMQ_USER": config.get("rabbitmq_user", "guest"),
+        "PLACEHOLDER_RABBITMQ_PASSWORD": secrets.get("rabbitmq_password", "guest"),
         "PLACEHOLDER_RECORDING_BUCKET_NAME": terraform_outputs.get(
             "recording_bucket_name", f"{project_id}-voipbin-recordings"
         ),
