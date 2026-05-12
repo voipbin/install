@@ -10,8 +10,57 @@ from scripts.diagnosis import (
     get_os_install_hint,
     offer_adc_setup,
 )
-from scripts.display import print_check, print_error, print_header, print_success
+from scripts.display import print_check, print_error, print_header, print_success, print_warning
 from scripts.utils import run_cmd
+
+
+CLOUDSQL_PRIVATE_IP_SENTINEL = "cloudsql-private.invalid"
+
+
+class PreflightError(RuntimeError):
+    """Raised when a preflight check rejects the current configuration."""
+
+
+def check_cloudsql_private_ip(config) -> None:
+    """Reject sentinel/empty values for ``cloudsql_private_ip``.
+
+    Raises :class:`PreflightError` with an operator-facing message naming
+    the field and pointing at the operations doc. Called from the install
+    pipeline before manifests are rendered.
+    """
+    value = (config.get("cloudsql_private_ip", "") or "").strip()
+    if not value or value == CLOUDSQL_PRIVATE_IP_SENTINEL:
+        raise PreflightError(
+            f"config.cloudsql_private_ip is not set (got {value!r}). "
+            "Provide the private IP of your Cloud SQL instance (visible "
+            "in GCP Console → SQL → connections → Private IP). VPC peering "
+            "between your GKE VPC and the Cloud SQL service-networking "
+            "VPC must be active. See docs/operations/cloudsql-private-ip.md."
+        )
+
+
+def warn_if_cloudsql_proxy_deployed() -> bool:
+    """Best-effort: warn operator if a stale cloudsql-proxy Deployment exists.
+
+    PR #5a is fresh-install only — kustomize apply does not prune the
+    Deployment that earlier PR #4 main may have created. This check is
+    non-blocking; returns True if a stale resource was detected.
+    """
+    result = run_cmd(
+        ["kubectl", "get", "deploy", "cloudsql-proxy",
+         "-n", "infrastructure", "--ignore-not-found", "-o", "name"],
+        timeout=15,
+    )
+    if result.returncode == 0 and "cloudsql-proxy" in (result.stdout or ""):
+        print_warning(
+            "Stale Deployment/cloudsql-proxy found in cluster. "
+            "PR #5a no longer manages this resource; clean up manually:\n"
+            "  kubectl delete deploy cloudsql-proxy -n infrastructure\n"
+            "  kubectl delete svc cloudsql-proxy -n infrastructure\n"
+            "  kubectl delete sa cloudsql-proxy -n infrastructure"
+        )
+        return True
+    return False
 
 
 @dataclass

@@ -43,22 +43,22 @@ BIN_SECRET_KEYS: dict[str, dict[str, str]] = {
     "CLICKHOUSE_DATABASE": {"default": "default", "class": "config"},
     "DATABASE_DSN_ASTERISK": {
         "default": (
-            "asterisk:password@tcp(cloudsql-proxy.infrastructure.svc."
-            "cluster.local:3306)/asterisk"
+            "asterisk:dummy-password@tcp("
+            "PLACEHOLDER_CLOUDSQL_PRIVATE_IP:3306)/asterisk"
         ),
         "class": "dsn",
     },
     "DATABASE_DSN_BIN": {
         "default": (
-            "bin-manager:password@tcp(cloudsql-proxy.infrastructure.svc."
-            "cluster.local:3306)/bin_manager"
+            "bin-manager:dummy-password@tcp("
+            "PLACEHOLDER_CLOUDSQL_PRIVATE_IP:3306)/bin_manager"
         ),
         "class": "dsn",
     },
     "DATABASE_DSN_POSTGRES": {
         "default": (
             "postgres://bin-manager:dummy-password@"
-            "cloudsql-proxy-postgres.infrastructure.svc.cluster.local:5432/"
+            "PLACEHOLDER_CLOUDSQL_PRIVATE_IP:5432/"
             "bin_manager?sslmode=disable"
         ),
         "class": "dsn",
@@ -134,7 +134,7 @@ assert len(BIN_SECRET_KEYS) == 53, f"BIN_SECRET_KEYS must have 53 entries (got {
 VOIP_SECRET_KEYS: dict[str, dict[str, str]] = {
     "DATABASE_ASTERISK_DATABASE": {"default": "asterisk", "class": "config"},
     "DATABASE_ASTERISK_HOST": {
-        "default": "cloudsql-proxy.infrastructure.svc.cluster.local",
+        "default": "PLACEHOLDER_CLOUDSQL_PRIVATE_IP",
         "class": "config",
     },
     "DATABASE_ASTERISK_PASSWORD": {"default": "dummy-asterisk-password", "class": "secret"},

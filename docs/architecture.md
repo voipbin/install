@@ -310,7 +310,7 @@ Detailed architecture documentation for the VoIPBin GCP deployment.
   - `sa-voipbin-gke-nodes` -- GKE node pool
   - `sa-voipbin-kamailio` -- Kamailio VMs
   - `sa-voipbin-rtpengine` -- RTPEngine VMs
-  - `sa-voipbin-cloudsql-proxy` -- Cloud SQL Proxy
+  - `sa-voipbin-cloudsql-proxy` -- Cloud SQL Proxy (deprecated; removal pending in PR #5b — backend Pods now reach Cloud SQL by private IP directly via VPC peering, no proxy involved)
 - Least-privilege scopes (logging, monitoring, storage read)
 - OS Login enabled on all VMs (no SSH key management)
 

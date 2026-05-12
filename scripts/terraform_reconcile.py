@@ -79,8 +79,11 @@ def build_registry(config: InstallerConfig) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
 
     # -- Service accounts ------------------------------------------------
+    # NOTE (PR #5a): `sa_cloudsql_proxy` intentionally omitted. The
+    # Terraform module still defines the SA; PR #5b will remove it. Until
+    # then, reconcile silently ignores its presence in GCP — terraform
+    # apply will keep it in sync via the existing module declaration.
     sa_specs = [
-        ("sa_cloudsql_proxy", "sa-voipbin-cloudsql-proxy", "Cloud SQL Proxy SA"),
         ("sa_gke_nodes",      "sa-voipbin-gke-nodes",      "GKE Node Pool SA"),
         ("sa_kamailio",       "sa-voipbin-kamailio",        "Kamailio VM SA"),
         ("sa_rtpengine",      "sa-voipbin-rtpengine",       "RTPEngine VM SA"),

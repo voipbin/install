@@ -94,10 +94,12 @@ class TestOfferAdcSetup:
             offer_adc_setup()
 
 
-def _make_config(project_id="my-project", region="us-central1", zone="us-central1-a"):
+def _make_config(project_id="my-project", region="us-central1", zone="us-central1-a",
+                 cloudsql_private_ip="10.42.0.7"):
     cfg = MagicMock()
     cfg.get.side_effect = lambda k, *a: {
-        "gcp_project_id": project_id, "region": region, "zone": zone
+        "gcp_project_id": project_id, "region": region, "zone": zone,
+        "cloudsql_private_ip": cloudsql_private_ip,
     }.get(k, a[0] if a else None)
     return cfg
 

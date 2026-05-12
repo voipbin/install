@@ -123,12 +123,14 @@ class TestBuildRegistryServiceAccounts:
             assert "gcloud_check" in entry, f"Missing gcloud_check in {entry}"
             assert "import_id" in entry, f"Missing import_id in {entry}"
 
-    def test_includes_cloudsql_proxy_sa(self):
+    def test_excludes_cloudsql_proxy_sa(self):
+        # PR #5a: cloudsql-proxy SA cleanup deferred to PR #5b. Reconcile
+        # must NOT touch the SA — TF module still defines it.
         cfg = self._make_config()
         addresses = {e["tf_address"] for e in build_registry(cfg)}
-        assert "google_service_account.sa_cloudsql_proxy" in addresses
+        assert "google_service_account.sa_cloudsql_proxy" not in addresses
 
-    def test_includes_all_four_service_accounts(self):
+    def test_includes_all_three_service_accounts(self):
         cfg = self._make_config()
         addresses = {e["tf_address"] for e in build_registry(cfg)}
         assert "google_service_account.sa_gke_nodes" in addresses
@@ -143,9 +145,9 @@ class TestBuildRegistryServiceAccounts:
 
     def test_sa_import_id_uses_project(self):
         cfg = self._make_config()
-        entry = next(e for e in build_registry(cfg) if e["tf_address"] == "google_service_account.sa_cloudsql_proxy")
+        entry = next(e for e in build_registry(cfg) if e["tf_address"] == "google_service_account.sa_gke_nodes")
         assert "my-project" in entry["import_id"]
-        assert "sa-voipbin-cloudsql-proxy" in entry["import_id"]
+        assert "sa-voipbin-gke-nodes" in entry["import_id"]
 
     def test_kms_key_ring_before_crypto_key(self):
         cfg = self._make_config()
@@ -315,7 +317,7 @@ class TestReconcile:
     def test_skips_resources_already_in_state(self, monkeypatch):
         monkeypatch.setattr(
             "scripts.terraform_reconcile.terraform_state_list",
-            lambda cfg: {"google_service_account.sa_cloudsql_proxy"},
+            lambda cfg: {"google_service_account.sa_gke_nodes"},
         )
         checked = []
         def fake_check(cmd):
@@ -324,7 +326,7 @@ class TestReconcile:
         monkeypatch.setattr("scripts.terraform_reconcile.check_exists_in_gcp", fake_check)
         monkeypatch.setattr("scripts.terraform_reconcile.confirm", lambda msg, default=True: False)
         reconcile(self._make_config())
-        checked_for_sa = any("sa-voipbin-cloudsql-proxy" in str(c) for c in checked)
+        checked_for_sa = any("sa-voipbin-gke-nodes" in str(c) for c in checked)
         assert not checked_for_sa, "Should not check resources already in state"
 
     def test_returns_false_when_user_declines(self, monkeypatch):

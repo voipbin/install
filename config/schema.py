@@ -66,6 +66,22 @@ CONFIG_SCHEMA = {
         "init_timestamp": {
             "type": "string",
         },
+        "cloudsql_private_ip": {
+            "type": "string",
+            "description": (
+                "Cloud SQL private IP (operator-supplied). VPC peering between "
+                "the GKE VPC and Cloud SQL service-networking VPC must be active. "
+                "Default sentinel 'cloudsql-private.invalid' (RFC 2606) is rejected "
+                "at preflight."
+            ),
+        },
+        "cloudsql_private_ip_cidr": {
+            "type": "string",
+            "description": (
+                "Optional override for the Cloud SQL CIDR egress rule in "
+                "NetworkPolicies. Defaults to <cloudsql_private_ip>/32."
+            ),
+        },
     },
     "additionalProperties": False,
 }
