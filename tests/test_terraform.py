@@ -57,7 +57,7 @@ class TestWriteTfvars:
 
         with open(tfvars_path) as f:
             data = json.load(f)
-        assert data["projectid"] == "test-project-123"
+        assert data["project_id"] == "test-project-123"
 
     def test_contains_region(self, tmp_path, monkeypatch):
         tfvars_path = tmp_path / "terraform.tfvars.json"
@@ -134,7 +134,7 @@ class TestWriteTfvars:
             data = json.load(f)
 
         expected_keys = {
-            "projectid", "region", "zone", "gke_type", "gke_machine_type",
+            "project_id", "region", "zone", "gke_type", "gke_machine_type",
             "gke_node_count", "vm_machine_type", "kamailio_count",
             "rtpengine_count", "domain", "dns_mode", "tls_strategy",
         }

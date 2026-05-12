@@ -22,9 +22,11 @@ the same shape is caught before merge.
 from __future__ import annotations
 
 import io
+import re
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
@@ -502,5 +504,113 @@ def test_reconcile_imports_returns_true_when_all_failures_are_deferrals(monkeypa
     ok = pipeline._run_reconcile_imports(cfg, {}, dry_run=False, auto_approve=True)
     assert ok is True, (
         "pipeline stage must succeed when every conflict is a deferred child"
+    )
+
+
+# =============================================================================
+# PR-L3: tfvars ↔ variables.tf name parity sweep
+# =============================================================================
+#
+# GAP-37 root cause: `to_terraform_vars` emitted key `projectid` while
+# `terraform/variables.tf` declares `project_id`. Terraform prompted
+# interactively for the missing variable, blocking auto-approve flow.
+#
+# This test exercises the actual parity surface: every key emitted by
+# to_terraform_vars must be declared in terraform/variables.tf. Synthetic
+# injection (revert `project_id` back to `projectid`) demonstrably catches
+# the GAP-37 incident shape.
+
+
+_VARIABLES_TF = Path(__file__).resolve().parent.parent / "terraform" / "variables.tf"
+_VAR_DECL_RE = re.compile(r'^variable\s+"([a-z_][a-z0-9_]*)"\s*\{', re.MULTILINE)
+
+
+def _declared_terraform_variables() -> set[str]:
+    """Parse `terraform/variables.tf` and return the set of declared variable names."""
+    text = _VARIABLES_TF.read_text(encoding="utf-8")
+    return set(_VAR_DECL_RE.findall(text))
+
+
+def test_to_terraform_vars_keys_match_variables_tf() -> None:
+    """PR-L3 — every key emitted by to_terraform_vars must exist in variables.tf.
+
+    Catches the GAP-37 shape: a typo in tfvars key (e.g. `projectid` vs
+    `project_id`) silently produces a tfvars.json whose terraform treats as
+    a missing required variable, triggering an interactive prompt that
+    halts `apply --auto-approve`.
+    """
+    from scripts.config import InstallerConfig
+
+    cfg = InstallerConfig()
+    cfg.set_many({
+        "gcp_project_id": "voipbin-install-dev",
+        "region": "us-central1",
+        "zone": "us-central1-a",
+        "gke_type": "zonal",
+        "gke_machine_type": "n1-standard-2",
+        "gke_node_count": 2,
+        "vm_machine_type": "f1-micro",
+        "kamailio_count": 1,
+        "rtpengine_count": 1,
+        "domain": "dev.voipbin-install.example.com",
+        "dns_mode": "manual",
+        "tls_strategy": "self-signed",
+    })
+    emitted = set(cfg.to_terraform_vars().keys())
+    declared = _declared_terraform_variables()
+    missing_in_tf = emitted - declared
+    assert not missing_in_tf, (
+        f"to_terraform_vars emits keys not declared in variables.tf: "
+        f"{sorted(missing_in_tf)} — terraform will prompt for these, "
+        f"breaking auto-approve. Add the variable or fix the tfvars key. "
+        f"Declared: {sorted(declared)}"
+    )
+
+
+def test_required_terraform_variables_have_tfvars_value() -> None:
+    """PR-L3 — every required (no-default) variable in variables.tf must have a tfvars value.
+
+    Reads variables.tf and identifies variables without a `default = ...`
+    clause; those are required. Asserts to_terraform_vars supplies a
+    non-None value for each.
+    """
+    from scripts.config import InstallerConfig
+
+    text = _VARIABLES_TF.read_text(encoding="utf-8")
+    # Split into per-variable blocks.
+    blocks = re.split(r'(?=^variable\s+")', text, flags=re.MULTILINE)
+    required: list[str] = []
+    for blk in blocks:
+        m = _VAR_DECL_RE.search(blk)
+        if not m:
+            continue
+        name = m.group(1)
+        if "default" not in blk:
+            required.append(name)
+
+    cfg = InstallerConfig()
+    cfg.set_many({
+        "gcp_project_id": "voipbin-install-dev",
+        "region": "us-central1",
+        "zone": "us-central1-a",
+        "gke_type": "zonal",
+        "gke_machine_type": "n1-standard-2",
+        "gke_node_count": 2,
+        "vm_machine_type": "f1-micro",
+        "kamailio_count": 1,
+        "rtpengine_count": 1,
+        "domain": "dev.voipbin-install.example.com",
+        "dns_mode": "manual",
+        "tls_strategy": "self-signed",
+    })
+    tfvars = cfg.to_terraform_vars()
+    missing_values: list[str] = []
+    for name in required:
+        if name not in tfvars or tfvars[name] is None or tfvars[name] == "":
+            missing_values.append(name)
+    assert not missing_values, (
+        f"variables.tf requires {missing_values} but to_terraform_vars did "
+        f"not supply non-empty values. terraform will prompt interactively, "
+        f"breaking --auto-approve."
     )
 

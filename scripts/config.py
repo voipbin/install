@@ -135,7 +135,7 @@ class InstallerConfig:
     def to_terraform_vars(self) -> dict[str, Any]:
         """Return config formatted for Terraform tfvars."""
         return {
-            "projectid": self.get("gcp_project_id"),
+            "project_id": self.get("gcp_project_id"),
             "region": self.get("region"),
             "zone": self.get("zone"),
             "gke_type": self.get("gke_type"),
