@@ -662,8 +662,9 @@ install/
 |   |-- versions.tf              # Terraform and provider version constraints
 |-- ansible/                     # Ansible configuration for VoIP VMs
 |   |-- ansible.cfg              # Ansible configuration
-|   |-- group_vars/              # Variable files per host group
 |   |-- inventory/               # Dynamic GCP inventory script
+|   |   |-- gcp_inventory.py
+|   |   |-- group_vars/          # Variable files per host group (auto-loaded by Ansible)
 |   |-- playbooks/               # site.yml, kamailio.yml, rtpengine.yml
 |   |-- roles/
 |       |-- common/              # Shared VM setup tasks
