@@ -55,8 +55,14 @@
       - curl
       - gnupg
       - lsb-release
-      - python3-pip
       - jq
+      # python3-docker is the Debian-packaged Docker SDK that
+      # community.docker.docker_compose_v2 imports at runtime. Debian 12
+      # enforces PEP 668 and rejects `pip install docker` on the system
+      # Python; using the apt package is the supported path and avoids
+      # --break-system-packages. python3-pip is no longer required here
+      # because no pip task remains.
+      - python3-docker
   when: docker_installed.rc != 0
 
 - name: Add Docker GPG key
@@ -82,14 +88,10 @@
     state: present
   when: docker_installed.rc != 0
 
-- name: Install Docker Python library
-  pip:
-    name:
-      - docker
-      - docker-compose
-    state: present
-    executable: pip3
-  when: docker_installed.rc != 0
+# Removed: pip install docker docker-compose
+# Replaced by python3-docker (apt) above. The legacy docker-compose pip
+# package is unused: community.docker.docker_compose_v2 invokes the
+# docker compose v2 CLI shipped by docker-compose-plugin.
 
 - name: Ensure Docker service is running
   systemd:
