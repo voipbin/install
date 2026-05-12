@@ -69,10 +69,11 @@ CONFIG_SCHEMA = {
         "cloudsql_private_ip": {
             "type": "string",
             "description": (
-                "Cloud SQL private IP (operator-supplied). VPC peering between "
-                "the GKE VPC and Cloud SQL service-networking VPC must be active. "
-                "Default sentinel 'cloudsql-private.invalid' (RFC 2606) is rejected "
-                "at preflight."
+                "DEPRECATED (PR-E): auto-populated by reconcile_outputs from "
+                "Terraform output `cloudsql_mysql_private_ip`. Operator value "
+                "is preserved as an override for BYO-network installs only. "
+                "Sentinel 'cloudsql-private.invalid' is rejected at k8s_apply "
+                "preflight."
             ),
         },
         "cloudsql_private_ip_cidr": {

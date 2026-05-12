@@ -552,6 +552,10 @@ def outputs(config: InstallerConfig, tf_outputs: dict[str, Any]) -> bool:
     if not FIELD_MAP:
         print_step("[dim]No outputs to populate (no fields registered yet).[/dim]")
         return True
+    # PR-E: import at function scope to avoid an unconditional dependency on
+    # scripts.preflight at module import time (preflight imports from diagnosis).
+    from scripts.preflight import CLOUDSQL_PRIVATE_IP_SENTINEL
+
     changed = False
     for mapping in FIELD_MAP:
         value = tf_outputs.get(mapping.tf_key)
@@ -560,7 +564,11 @@ def outputs(config: InstallerConfig, tf_outputs: dict[str, Any]) -> bool:
         if not mapping.validator(value):
             print_warning(f"Invalid output for {mapping.tf_key}: {value!r}; skipping.")
             continue
-        if not config.get(mapping.cfg_key):
+        # PR-E: overwrite when the current value is the sentinel
+        # (operator upgraded from a previous installer that wrote a
+        # `cloudsql-private.invalid` default into config.yaml).
+        current = config.get(mapping.cfg_key)
+        if not current or current == CLOUDSQL_PRIVATE_IP_SENTINEL:
             config.set(mapping.cfg_key, value)
             changed = True
     if changed:

@@ -94,9 +94,10 @@ class InstallerConfig:
             "rtpengine_count": DEFAULT_RTPENGINE_COUNT,
             "installer_version": INSTALLER_VERSION,
             "init_timestamp": datetime.now(timezone.utc).isoformat(),
-            # PR #5a: Cloud SQL private IP (operator-supplied). Sentinel
-            # default per RFC 2606 — preflight rejects this value.
-            "cloudsql_private_ip": "cloudsql-private.invalid",
+            # PR-E: cloudsql_private_ip default removed. The field is auto-populated
+            # by reconcile_outputs from Terraform output `cloudsql_mysql_private_ip`.
+            # If reconcile_outputs hasn't run, the field is absent and the
+            # k8s_apply preflight rejects it loudly.
         }
         for k, v in defaults.items():
             if k not in self._data:

@@ -57,6 +57,17 @@ def _count_gcp_apis() -> int:
     return len(data.get("apis", []))
 
 
+def _count_secrets() -> int:
+    """Count secret entries written to secrets.yaml during init.
+
+    Union of operator-editable + init-generated (TLS + JWT) keys, sourced
+    from ``scripts.secret_schema.all_allowed_secrets_yaml_keys()`` — the
+    single source of truth. Replaces the previously stale literal "6".
+    """
+    from scripts.secret_schema import all_allowed_secrets_yaml_keys
+    return len(all_allowed_secrets_yaml_keys())
+
+
 def cmd_init(
     reconfigure: bool = False,
     config_path: str = "",
@@ -178,8 +189,7 @@ def cmd_init(
             f"  1. Enable {_count_gcp_apis()} GCP APIs on project {project_id}",
             f"  2. Create service account: voipbin-installer@{project_id}.iam.gserviceaccount.com",
             f"  3. Create KMS key ring in {region} for SOPS encryption",
-            f"  4. Generate 6 secrets (jwt_key, cloudsql_password, redis_password,",
-            f"     rabbitmq_user, rabbitmq_password, api_signing_key)",
+            f"  4. Generate {_count_secrets()} encrypted secrets (DB passwords, JWT key, API keys, TLS certs)",
             f"  5. Encrypt secrets.yaml with SOPS + GCP KMS",
             f"  6. Write config.yaml and .sops.yaml",
             "",

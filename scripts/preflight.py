@@ -10,7 +10,7 @@ from scripts.diagnosis import (
     get_os_install_hint,
     offer_adc_setup,
 )
-from scripts.display import print_check, print_error, print_header, print_success, print_warning
+from scripts.display import print_check, print_error, print_header, print_success
 from scripts.utils import run_cmd
 
 
@@ -37,30 +37,6 @@ def check_cloudsql_private_ip(config) -> None:
             "between your GKE VPC and the Cloud SQL service-networking "
             "VPC must be active. See docs/operations/cloudsql-private-ip.md."
         )
-
-
-def warn_if_cloudsql_proxy_deployed() -> bool:
-    """Best-effort: warn operator if a stale cloudsql-proxy Deployment exists.
-
-    PR #5a is fresh-install only — kustomize apply does not prune the
-    Deployment that earlier PR #4 main may have created. This check is
-    non-blocking; returns True if a stale resource was detected.
-    """
-    result = run_cmd(
-        ["kubectl", "get", "deploy", "cloudsql-proxy",
-         "-n", "infrastructure", "--ignore-not-found", "-o", "name"],
-        timeout=15,
-    )
-    if result.returncode == 0 and "cloudsql-proxy" in (result.stdout or ""):
-        print_warning(
-            "Stale Deployment/cloudsql-proxy found in cluster. "
-            "PR #5a no longer manages this resource; clean up manually:\n"
-            "  kubectl delete deploy cloudsql-proxy -n infrastructure\n"
-            "  kubectl delete svc cloudsql-proxy -n infrastructure\n"
-            "  kubectl delete sa cloudsql-proxy -n infrastructure"
-        )
-        return True
-    return False
 
 
 @dataclass
