@@ -28,10 +28,6 @@ def _write_extra_vars(
     ansible_vars = config.to_ansible_vars()
     ansible_vars["terraform_outputs"] = terraform_outputs
     # Flatten common Terraform outputs into top-level vars for Ansible roles
-    ansible_vars["cloudsql_connection_name"] = terraform_outputs.get(
-        "cloudsql_connection_name", ""
-    )
-    ansible_vars["cloudsql_ip"] = terraform_outputs.get("cloudsql_ip", "")
     ansible_vars["kamailio_internal_ips"] = terraform_outputs.get(
         "kamailio_internal_ips", []
     )

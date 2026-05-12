@@ -56,9 +56,9 @@ output "cloudsql_connection_name" {
   value       = google_sql_database_instance.voipbin.connection_name
 }
 
-output "cloudsql_ip" {
-  description = "Cloud SQL instance public IP address"
-  value       = google_sql_database_instance.voipbin.public_ip_address
+output "cloudsql_mysql_private_ip" {
+  description = "Cloud SQL MySQL private IP (consumed by reconcile_outputs FIELD_MAP)."
+  value       = google_sql_database_instance.voipbin.private_ip_address
 }
 
 ###############################################################################
