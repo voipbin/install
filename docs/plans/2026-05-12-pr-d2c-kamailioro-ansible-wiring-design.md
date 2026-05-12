@@ -6,7 +6,7 @@ Date. 2026-05-12 (v1), 2026-05-13 v2, 2026-05-13 v3, 2026-05-13 v4, 2026-05-13 v
 Branch. NOJIRA-PR-D2c-kamailioro-ansible-wiring
 Builds on. PR-D2a (cloudsql.tf, terraform outputs including `cloudsql_mysql_password_kamailioro`) and PR-D2b (k8s manifest DSN wiring).
 
-## 0. Changelog (v1. v2. v3)
+## 0. Changelog (v1 → v5)
 
 **v1 → v2 (2026-05-13)**. Removed v1's "env.j2 syntax fix" scope item after `xxd` byte-level verification showed the template was correct on disk. The `***` markers v1 cited came from the Hermes terminal output-masking layer (a display-time redactor that obscures kebab-case identifiers and Jinja2 delimiters). Phantom-bug retrospective preserved in §12. Test plan shrank from 12 to 9 cases.
 
