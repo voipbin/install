@@ -27,6 +27,8 @@ from __future__ import annotations
 # 53-key bin-manager Secret inventory
 # ---------------------------------------------------------------------------
 # Class vocabulary: "secret" | "config" | "dsn" | "tls"
+# Note: Operator-supplied rabbitmq_password must be URL-safe (no `@`, `:`, `/`, `?`);
+# these chars corrupt the DSN userinfo per RFC 3986 when substituted into RABBITMQ_ADDRESS.
 # The default values use PLACEHOLDER_* tokens where ``scripts/k8s.py`` does
 # late-bound substitution, OR literal defaults that are safe to ship.
 
@@ -99,7 +101,7 @@ BIN_SECRET_KEYS: dict[str, dict[str, str]] = {
     "PROMETHEUS_ENDPOINT": {"default": "/metrics", "class": "config"},
     "PROMETHEUS_LISTEN_ADDRESS": {"default": ":2112", "class": "config"},
     "RABBITMQ_ADDRESS": {
-        "default": "amqp://guest:***@rabbitmq.infrastructure.svc.cluster.local:5672",
+        "default": "amqp://guest:PLACEHOLDER_RABBITMQ_PASSWORD@rabbitmq.infrastructure.svc.cluster.local:5672",
         "class": "config",
     },
     "REDIS_ADDRESS": {
@@ -146,7 +148,7 @@ VOIP_SECRET_KEYS: dict[str, dict[str, str]] = {
     },
     "KAMAILIO_INTERNAL_LB_NAME": {"default": "kamailio-internal-lb", "class": "config"},
     "RABBITMQ_ADDRESS": {
-        "default": "amqp://guest:***@rabbitmq.infrastructure.svc.cluster.local:5672",
+        "default": "amqp://guest:PLACEHOLDER_RABBITMQ_PASSWORD@rabbitmq.infrastructure.svc.cluster.local:5672",
         "class": "config",
     },
     "REDIS_ADDRESS": {
