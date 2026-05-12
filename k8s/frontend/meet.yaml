@@ -40,42 +40,6 @@ spec:
               port: 80
             initialDelaySeconds: 5
             periodSeconds: 5
-        - name: nginx-tls
-          image: nginx:1.27-alpine
-          ports:
-            - containerPort: 443
-              name: https
-          resources:
-            requests:
-              cpu: "10m"
-              memory: "32Mi"
-            limits:
-              cpu: "100m"
-              memory: "64Mi"
-          readinessProbe:
-            tcpSocket:
-              port: 443
-            initialDelaySeconds: 3
-            periodSeconds: 5
-          livenessProbe:
-            tcpSocket:
-              port: 443
-            initialDelaySeconds: 10
-            periodSeconds: 30
-          volumeMounts:
-            - name: tls
-              mountPath: /etc/nginx/tls
-              readOnly: true
-            - name: nginx-conf
-              mountPath: /etc/nginx/conf.d
-              readOnly: true
-      volumes:
-        - name: tls
-          secret:
-            secretName: voipbin-tls
-        - name: nginx-conf
-          configMap:
-            name: frontend-tls-proxy
 ---
 apiVersion: v1
 kind: Service
@@ -91,6 +55,6 @@ spec:
   ports:
     - name: https
       port: 443
-      targetPort: 443
+      targetPort: 80
   selector:
     app: meet

@@ -25,11 +25,35 @@ spec:
           ports:
             - containerPort: 2112
               name: metrics
-          envFrom:
-            - configMapRef:
-                name: voipbin-config
-            - secretRef:
-                name: voipbin-secret
+          env:
+            - name: RABBITMQ_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: RABBITMQ_ADDRESS
+            - name: GCP_PROJECT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: GCP_PROJECT_ID
+            - name: GCP_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: GCP_REGION
+            - name: POSTGRESQL_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: DATABASE_DSN_POSTGRES
+            - name: GOOGLE_EMBEDDING_MODEL
+              value: "text-embedding-004"
+            - name: RAG_TOP_K
+              value: "5"
+            - name: PROMETHEUS_ENDPOINT
+              value: "/metrics"
+            - name: PROMETHEUS_LISTEN_ADDRESS
+              value: ":2112"
           resources:
             requests:
               cpu: "50m"

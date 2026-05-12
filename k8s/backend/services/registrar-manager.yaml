@@ -25,11 +25,56 @@ spec:
           ports:
             - containerPort: 2112
               name: metrics
-          envFrom:
-            - configMapRef:
-                name: voipbin-config
-            - secretRef:
-                name: voipbin-secret
+          env:
+            - name: DATABASE_DSN_BIN
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: DATABASE_DSN_BIN
+            - name: DATABASE_DSN_ASTERISK
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: DATABASE_DSN_ASTERISK
+            - name: RABBITMQ_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: RABBITMQ_ADDRESS
+            - name: REDIS_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: REDIS_ADDRESS
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: REDIS_PASSWORD
+            - name: REDIS_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: REDIS_DATABASE
+            - name: DOMAIN_NAME_EXTENSION
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: DOMAIN_NAME_EXTENSION
+            - name: DOMAIN_NAME_TRUNK
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: DOMAIN_NAME_TRUNK
+            - name: CLICKHOUSE_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: CLICKHOUSE_ADDRESS
+            - name: PROMETHEUS_ENDPOINT
+              value: "/metrics"
+            - name: PROMETHEUS_LISTEN_ADDRESS
+              value: ":2112"
           resources:
             requests:
               cpu: "50m"

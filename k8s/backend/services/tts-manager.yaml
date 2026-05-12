@@ -25,11 +25,68 @@ spec:
           ports:
             - containerPort: 2112
               name: metrics
-          envFrom:
-            - configMapRef:
-                name: voipbin-config
-            - secretRef:
-                name: voipbin-secret
+          env:
+            - name: DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: DATABASE_DSN_BIN
+            - name: RABBITMQ_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: RABBITMQ_ADDRESS
+            - name: REDIS_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: REDIS_ADDRESS
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: REDIS_PASSWORD
+            - name: REDIS_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: REDIS_DATABASE
+            - name: AWS_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: AWS_ACCESS_KEY
+            - name: AWS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: AWS_SECRET_KEY
+            - name: ELEVENLABS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: ELEVENLABS_API_KEY
+            - name: CLICKHOUSE_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: CLICKHOUSE_ADDRESS
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: PROMETHEUS_ENDPOINT
+              value: "/metrics"
+            - name: PROMETHEUS_LISTEN_ADDRESS
+              value: ":2112"
           resources:
             requests:
               cpu: "50m"

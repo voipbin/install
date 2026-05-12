@@ -93,6 +93,35 @@ spec:
                 configMapKeyRef:
                   name: voipbin-voip-config
                   key: DOMAIN
+            - name: DATABASE_ASTERISK_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: DATABASE_ASTERISK_DATABASE
+            - name: DATABASE_ASTERISK_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: DATABASE_ASTERISK_HOST
+            - name: DATABASE_ASTERISK_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: DATABASE_ASTERISK_PASSWORD
+            - name: DATABASE_ASTERISK_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: DATABASE_ASTERISK_PORT
+            - name: DATABASE_ASTERISK_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: DATABASE_ASTERISK_USERNAME
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
           securityContext:
             privileged: true
             capabilities:

@@ -23,17 +23,79 @@ spec:
         - name: api-manager
           image: voipbin/api-manager
           ports:
-            - containerPort: 443
-              name: api
             - containerPort: 2112
               name: metrics
+            - containerPort: 443
+              name: service
             - containerPort: 9000
               name: audiosocket
-          envFrom:
-            - configMapRef:
-                name: voipbin-config
-            - secretRef:
-                name: voipbin-secret
+          env:
+            - name: DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: DATABASE_DSN_BIN
+            - name: RABBITMQ_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: RABBITMQ_ADDRESS
+            - name: REDIS_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: REDIS_ADDRESS
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: REDIS_PASSWORD
+            - name: REDIS_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: REDIS_DATABASE
+            - name: SSL_PRIVKEY_BASE64
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: SSL_PRIVKEY_API_BASE64
+            - name: SSL_CERT_BASE64
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: SSL_CERT_API_BASE64
+            - name: GCP_PROJECT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: GCP_PROJECT_ID
+            - name: GCP_BUCKET_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: GCP_BUCKET_NAME_TMP
+            - name: JWT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: voipbin
+                  key: JWT_KEY
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: PROMETHEUS_ENDPOINT
+              value: "/metrics"
+            - name: PROMETHEUS_LISTEN_ADDRESS
+              value: ":2112"
           resources:
             requests:
               cpu: "50m"
