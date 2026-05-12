@@ -150,14 +150,21 @@ kubectl describe networkpolicy POLICY_NAME -n NAMESPACE
 
 **Diagnosis**:
 ```bash
-kubectl get pods -n infrastructure -l app=cloudsql-proxy
-kubectl logs -n infrastructure -l app=cloudsql-proxy
+# Verify the private IP recorded in config.yaml matches the live Cloud SQL instance
+voipbin-install verify
+gcloud sql instances describe voipbin-mysql --project PROJECT_ID \
+  --format='value(ipAddresses[].ipAddress)'
+
+# Test private-IP reachability from inside a backend pod
+kubectl run -n bin-manager netcheck --rm -it --image=busybox -- \
+  nc -vz <cloudsql_private_ip> 3306
 ```
 
 **Solution**:
-1. Verify Cloud SQL instance is running: `gcloud sql instances describe voipbin-mysql --project PROJECT_ID`
-2. Check proxy service account permissions
-3. Verify the connection name in proxy deployment matches Terraform output
+1. Confirm VPC peering between your GKE VPC and the Cloud SQL service-networking VPC is `ACTIVE`
+2. Confirm `config.cloudsql_private_ip` matches the live instance private IP
+3. Confirm the NetworkPolicy `allow-to-cloudsql-private-ip` is rendered with the correct CIDR (`kubectl get networkpolicy -n bin-manager allow-to-cloudsql-private-ip -o yaml`)
+4. See `docs/operations/cloudsql-private-ip.md` for the full guide
 
 ### Authentication failed
 

@@ -202,3 +202,32 @@ def test_preflight_rejects_sentinel_cloudsql_ip():
 
     # A real-looking IP passes.
     check_cloudsql_private_ip(FakeConfig({"cloudsql_private_ip": "10.42.0.7"}))
+
+
+def test_run_pre_apply_checks_invokes_cloudsql_preflight(monkeypatch):
+    """Integration test: run_pre_apply_checks must call check_cloudsql_private_ip
+    before any manifest render. Catches the dead-code-path regression where
+    the preflight function existed but was never invoked."""
+    from unittest.mock import MagicMock, patch
+
+    from scripts.preflight import PreflightError
+
+    # Build a config whose cloudsql_private_ip is the sentinel.
+    cfg = MagicMock()
+    cfg.get.side_effect = lambda k, *a: {
+        "gcp_project_id": "p",
+        "region": "us-central1",
+        "zone": "us-central1-a",
+        "cloudsql_private_ip": "cloudsql-private.invalid",
+    }.get(k, a[0] if a else None)
+
+    with patch("scripts.diagnosis.check_application_default_credentials",
+               return_value=(True, "u@e.com")):
+        from scripts.diagnosis import run_pre_apply_checks
+        # Sentinel must cause the check to fail and return False before
+        # any later check is reached.
+        result = run_pre_apply_checks(cfg)
+        assert result is False, (
+            "run_pre_apply_checks should return False when "
+            "cloudsql_private_ip is the sentinel value"
+        )
