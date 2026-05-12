@@ -532,6 +532,29 @@ def build_registry(config: InstallerConfig) -> list[dict[str, Any]]:
                          f"--project={project}"],
     })
 
+    # -- Postgres (PR-D1). Instance has no parent within VoIPBin terraform;
+    # the user does, so it gets parent_check pointing at the Postgres instance.
+    # PR-D2 will add per-app databases and users alongside.
+    env_name = config.get("env") or DEFAULT_ENV
+    postgres_instance = f"{env_name}-postgres"
+    entries.append({
+        "tf_address":   "google_sql_database_instance.voipbin_postgres",
+        "description":  "Cloud SQL Postgres Instance",
+        "gcloud_check": ["gcloud", "sql", "instances", "describe", postgres_instance,
+                         f"--project={project}"],
+        "import_id":    f"projects/{project}/instances/{postgres_instance}",
+    })
+    entries.append({
+        "tf_address":   "google_sql_user.voipbin_postgres",
+        "description":  "Cloud SQL Postgres Admin User",
+        "gcloud_check": ["gcloud", "sql", "users", "list",
+                         f"--instance={postgres_instance}",
+                         "--filter=name=postgres", f"--project={project}"],
+        "import_id":    f"{project}/{postgres_instance}/postgres",
+        "parent_check": ["gcloud", "sql", "instances", "describe", postgres_instance,
+                         f"--project={project}"],
+    })
+
     # -- GKE (cluster must come before node pool) -----------------------
     entries.append({
         "tf_address":   "google_container_cluster.voipbin",
@@ -710,6 +733,12 @@ FIELD_MAP: list[TfOutputFieldMapping] = [
         tf_key="cloudsql_peering_range_cidr",
         cfg_key="cloudsql_private_ip_cidr",
         validator=_is_valid_ipv4_cidr,
+    ),
+    TfOutputFieldMapping(
+        # PR-D1: Postgres private IP. PR-D2 will use this to build DSN secrets.
+        tf_key="cloudsql_postgres_private_ip",
+        cfg_key="cloudsql_postgres_private_ip",
+        validator=_is_valid_ipv4_address,
     ),
 ]
 

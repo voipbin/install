@@ -73,6 +73,16 @@ output "cloudsql_mysql_private_ip" {
   value       = google_sql_database_instance.voipbin.private_ip_address
 }
 
+output "cloudsql_postgres_connection_name" {
+  description = "Cloud SQL Postgres instance connection name (for Cloud SQL Proxy). PR-D2 may consume."
+  value       = google_sql_database_instance.voipbin_postgres.connection_name
+}
+
+output "cloudsql_postgres_private_ip" {
+  description = "Cloud SQL Postgres private IP (consumed by reconcile_outputs FIELD_MAP)."
+  value       = google_sql_database_instance.voipbin_postgres.private_ip_address
+}
+
 ###############################################################################
 # Load Balancers
 ###############################################################################
