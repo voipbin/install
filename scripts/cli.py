@@ -56,8 +56,9 @@ def init(reconfigure, config_path, skip_api_enable, skip_quota_check, dry_run):
         "reconcile_imports",
         "terraform_apply",
         "reconcile_outputs",
-        "ansible_run",
         "k8s_apply",
+        "reconcile_k8s_outputs",
+        "ansible_run",
         "terraform_reconcile",  # deprecated alias — expands to both new stages
     ]),
     default=None,
