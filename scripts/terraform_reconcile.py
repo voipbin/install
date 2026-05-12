@@ -411,11 +411,15 @@ def build_registry(config: InstallerConfig) -> list[dict[str, Any]]:
     return entries
 
 
-def imports(config: InstallerConfig) -> bool:
+def imports(config: InstallerConfig, auto_approve: bool = False) -> bool:
     """Detect GCP resources missing from Terraform state and import them.
 
     Returns True if the pipeline may proceed (no conflicts, or all imports
     succeeded). Returns False if the user declined or any import failed.
+
+    When ``auto_approve`` is True the interactive "Import all... continue?"
+    prompt is skipped — required for non-interactive runs such as
+    ``voipbin-install apply --auto-approve`` (see GAP-34).
     """
     project_id = config.get("gcp_project_id")
     if not project_id:
@@ -469,7 +473,7 @@ def imports(config: InstallerConfig) -> bool:
     console.print(table)
     console.print()
 
-    if not confirm("Import all into Terraform state and continue?", default=True):
+    if not auto_approve and not confirm("Import all into Terraform state and continue?", default=True):
         print_step("Pipeline halted. Re-run [bold]voipbin-install apply[/bold] after resolving conflicts manually.")
         return False
 
