@@ -64,16 +64,32 @@ def extract_value(outputs: dict, key: str, default="") -> str:
     return default
 
 
-def build_iap_ssh_args(project_id: str, zone: str) -> str:
-    """Build SSH ProxyCommand for IAP tunnel."""
-    return (
-        "-o StrictHostKeyChecking=no "
-        "-o UserKnownHostsFile=/dev/null "
-        f'-o ProxyCommand="gcloud compute start-iap-tunnel %h %p '
-        f"--listen-on-stdin "
-        f"--project={project_id} "
-        f'--zone={zone}"'
-    )
+def get_oslogin_username() -> str:
+    """Return the operator's OS Login POSIX username for the active gcloud
+    identity.
+
+    OS Login maps each IAM principal to a generated POSIX username (e.g.
+    pchero_voipbin_net for pchero@voipbin.net). We query the active profile
+    rather than guessing because the canonicalization rule is account- and
+    domain-dependent.
+
+    Returns the empty string on failure; the caller's preflight check is
+    responsible for surfacing a usable error message.
+    """
+    override = os.environ.get("ANSIBLE_USER", "").strip()
+    if override:
+        return override
+    try:
+        result = subprocess.run(
+            ["gcloud", "compute", "os-login", "describe-profile",
+             "--format=value(posixAccounts[0].username)"],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return ""
 
 
 def build_inventory(outputs: dict) -> dict:
@@ -84,11 +100,14 @@ def build_inventory(outputs: dict) -> dict:
 
     # Extract VM instance names/IPs from Terraform outputs
     # Expected outputs: kamailio_instance_names, kamailio_internal_ips,
-    #                   rtpengine_instance_names, rtpengine_internal_ips
+    #                   kamailio_external_ips, rtpengine_instance_names,
+    #                   rtpengine_internal_ips, rtpengine_external_ips
     kamailio_names = extract_value(outputs, "kamailio_instance_names", [])
     kamailio_ips = extract_value(outputs, "kamailio_internal_ips", [])
+    kamailio_external_ips = extract_value(outputs, "kamailio_external_ips", [])
     rtpengine_names = extract_value(outputs, "rtpengine_instance_names", [])
     rtpengine_ips = extract_value(outputs, "rtpengine_internal_ips", [])
+    rtpengine_external_ips = extract_value(outputs, "rtpengine_external_ips", [])
 
     # Extract LB IPs and other shared outputs
     kamailio_external_lb_ip = extract_value(
@@ -110,7 +129,19 @@ def build_inventory(outputs: dict) -> dict:
         outputs, "asterisk_conference_lb_ip", ""
     )
 
-    iap_ssh_args = build_iap_ssh_args(project_id, zone)
+    # Resolve the operator's OS Login POSIX username once. Each VM has
+    # enable-oslogin=TRUE, so we connect with this username and the SSH key
+    # already published to the operator's OS Login profile.
+    oslogin_user = get_oslogin_username()
+    # Standard SSH args: relaxed host-key checking is acceptable because
+    # connections are authenticated by OS Login publickey + GCP IAM and the
+    # ephemeral external IP can change across VM rebuilds.
+    ssh_args = (
+        "-o StrictHostKeyChecking=no "
+        "-o UserKnownHostsFile=/dev/null "
+        "-o IdentitiesOnly=yes "
+        "-i ~/.ssh/google_compute_engine"
+    )
 
     # Build hostvars
     hostvars = {}
@@ -119,11 +150,13 @@ def build_inventory(outputs: dict) -> dict:
 
     for i, name in enumerate(kamailio_names):
         ip = kamailio_ips[i] if i < len(kamailio_ips) else ""
+        external_ip = kamailio_external_ips[i] if i < len(kamailio_external_ips) else ""
         hostvars[name] = {
-            "ansible_host": name,
-            "ansible_user": os.environ.get("ANSIBLE_USER", "sa_ansible"),
-            "ansible_ssh_common_args": iap_ssh_args,
+            "ansible_host": external_ip or name,
+            "ansible_user": oslogin_user,
+            "ansible_ssh_common_args": ssh_args,
             "internal_ip": ip,
+            "external_ip": external_ip,
             "gcp_project_id": project_id,
             "gcp_zone": zone,
             "gcp_region": region,
@@ -132,11 +165,13 @@ def build_inventory(outputs: dict) -> dict:
 
     for i, name in enumerate(rtpengine_names):
         ip = rtpengine_ips[i] if i < len(rtpengine_ips) else ""
+        external_ip = rtpengine_external_ips[i] if i < len(rtpengine_external_ips) else ""
         hostvars[name] = {
-            "ansible_host": name,
-            "ansible_user": os.environ.get("ANSIBLE_USER", "sa_ansible"),
-            "ansible_ssh_common_args": iap_ssh_args,
+            "ansible_host": external_ip or name,
+            "ansible_user": oslogin_user,
+            "ansible_ssh_common_args": ssh_args,
             "internal_ip": ip,
+            "external_ip": external_ip,
             "gcp_project_id": project_id,
             "gcp_zone": zone,
             "gcp_region": region,

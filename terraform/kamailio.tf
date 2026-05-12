@@ -39,9 +39,13 @@ resource "google_compute_instance" "kamailio" {
     }
   }
 
-  # No access_config — no public IP. Use LB for external access.
+  # Ephemeral public IP for SSH access via OS Login. SIP/TLS/WSS traffic
+  # arrives via the kamailio load balancer (kamailio_external_lb_ip); the
+  # VM's own external IP is used only by operators running ansible-playbook
+  # against it. Firewall rule fw_vm_ssh restricts ingress to port 22.
   network_interface {
     subnetwork = google_compute_subnetwork.voipbin_main.id
+    access_config {}
   }
 
   service_account {

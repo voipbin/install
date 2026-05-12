@@ -300,7 +300,7 @@ Detailed architecture documentation for the VoIPBin GCP deployment.
 ### Network Isolation
 
 - Private GKE nodes (no public IPs on cluster nodes)
-- VM SSH access only through IAP tunnel (source: 35.235.240.0/20)
+- VM SSH access via OS Login + publickey-only auth (port 22 open to 0.0.0.0/0; IAM enforces who can connect, OS Login enforces how)
 - Kubernetes network policies with default-deny and explicit allow rules
 - Pod security standards enforced per namespace (baseline / restricted)
 

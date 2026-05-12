@@ -33,6 +33,11 @@ output "kamailio_internal_ips" {
   value       = google_compute_instance.kamailio[*].network_interface[0].network_ip
 }
 
+output "kamailio_external_ips" {
+  description = "Ephemeral external IP addresses of Kamailio VMs (used by Ansible over OS Login)"
+  value       = google_compute_instance.kamailio[*].network_interface[0].access_config[0].nat_ip
+}
+
 ###############################################################################
 # RTPEngine
 ###############################################################################

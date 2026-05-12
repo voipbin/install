@@ -154,7 +154,8 @@ to request a quota increase before deploying.
 | `roles/resourcemanager.projectIamAdmin` | Bind IAM roles to service accounts |
 | `roles/storage.admin` | GCS buckets (Terraform state, media) |
 | `roles/serviceusage.serviceUsageAdmin` | Enable GCP APIs |
-| `roles/iap.tunnelResourceAccessor` | SSH to VMs through IAP tunnel |
+| `roles/compute.osLogin` | SSH to Kamailio/RTPEngine VMs as a non-sudo user via OS Login |
+| `roles/compute.osAdminLogin` | SSH and become root on Kamailio/RTPEngine VMs (Ansible needs sudo) |
 
 ### GCP Quota Requirements
 
@@ -434,7 +435,7 @@ Decrypt manually with: `sops --decrypt secrets.yaml`
 | SIP/TLS/WSS | kamailio | 443, 5060, 5061 (TCP/UDP) | 0.0.0.0/0 |
 | RTP media | rtpengine | 20000-30000 (UDP) | Kamailio IPs + GKE pods |
 | RTPEngine control | rtpengine | 22222 (TCP/UDP) | kamailio tag |
-| IAP SSH | kamailio, rtpengine | 22 (TCP) | 35.235.240.0/20 |
+| VM SSH | kamailio, rtpengine | 22 (TCP) | 0.0.0.0/0 (OS Login publickey-only) |
 | GKE internal | all | 6379, 5672 (TCP) | GKE pod CIDR |
 | Health checks | kamailio | 5060 (TCP) | GCP health check ranges |
 | Internal subnet | all | all TCP/UDP | 10.0.0.0/16 |
@@ -630,7 +631,7 @@ install/
 |   |-- preflight.py             # Tool version checks and GCP auth validation
 |   |-- secretmgr.py             # Secret generation and SOPS encryption
 |   |-- terraform.py             # Terraform init/plan/apply/destroy/output + tfvars
-|   |-- ansible_runner.py        # Ansible playbook execution via IAP tunnel
+|   |-- ansible_runner.py        # Ansible playbook execution (OS Login SSH)
 |   |-- utils.py                 # Shell commands, semver parsing, crypto helpers
 |   |-- verify.py                # 10 health checks (GKE, pods, DNS, HTTP, SIP, etc.)
 |   |-- wizard.py                # 7-question interactive setup wizard

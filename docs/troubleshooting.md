@@ -57,15 +57,16 @@ gsutil mb -p PROJECT_ID gs://PROJECT_ID-voipbin-tf-state
 
 ## Ansible Errors
 
-### IAP tunnel connection failed
+### OS Login SSH connection failed
 
-**Symptom**: `ERROR! Timeout waiting for connection` or `Permission denied (publickey)`
+**Symptom**: `Permission denied (publickey)` from a Kamailio or RTPEngine VM during the Ansible stage.
 
 **Solution**:
-1. Verify IAP SSH access: `gcloud compute ssh VM_NAME --tunnel-through-iap --project PROJECT_ID --zone ZONE`
-2. Ensure the IAP API is enabled: `gcloud services enable iap.googleapis.com`
-3. Check IAP firewall rule exists: `gcloud compute firewall-rules list --filter="name~iap"`
-4. Verify IAM binding for IAP tunnel: `roles/iap.tunnelResourceAccessor`
+1. Run once: `gcloud compute config-ssh` (generates `~/.ssh/google_compute_engine` and uploads the public key to your OS Login profile)
+2. Verify your OS Login profile has the key registered: `gcloud compute os-login ssh-keys list`
+3. Verify your account holds both `roles/compute.osLogin` and `roles/compute.osAdminLogin` on the project (Ansible needs sudo).
+4. Verify port 22 is open on the VM's firewall: `gcloud compute firewall-rules list --filter="name~vm-ssh"`
+5. Re-run: `./voipbin-install apply`
 
 ### Docker install failed
 
@@ -73,7 +74,7 @@ gsutil mb -p PROJECT_ID gs://PROJECT_ID-voipbin-tf-state
 
 **Solution**: Wait for cloud-init to complete on new VMs:
 ```bash
-gcloud compute ssh VM_NAME --tunnel-through-iap -- 'cloud-init status --wait'
+gcloud compute ssh VM_NAME -- 'cloud-init status --wait'
 ```
 Then re-run: `./voipbin-install apply --stage ansible`
 

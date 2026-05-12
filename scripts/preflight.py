@@ -1,8 +1,10 @@
 """Prerequisite and preflight checks for VoIPBin installer."""
 
 import json
+import os
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Optional
 
 from scripts.diagnosis import (
@@ -259,6 +261,64 @@ def check_nodeport_availability(needed: int = 7) -> bool:
     total = 32767 - 30000 + 1
     free = total - len(used)
     return free >= needed
+
+
+def check_oslogin_setup() -> Optional[str]:
+    """Verify the operator's OS Login profile is provisioned and the
+    matching SSH key file is present locally.
+
+    The Ansible stage connects to Kamailio/RTPEngine VMs using OS Login.
+    That requires three things to exist BEFORE we invoke ansible-playbook:
+      1. A POSIX account on the operator's OS Login profile (created
+         automatically by ``gcloud compute config-ssh`` or by the first
+         ``gcloud compute ssh`` invocation).
+      2. The local SSH private key at ``~/.ssh/google_compute_engine``.
+      3. The corresponding public key registered to the OS Login profile.
+
+    Returns None on success, or a human-readable error string the caller
+    surfaces verbatim. The remediation in every error message is the same
+    single command, so operators have one thing to run and re-try.
+    """
+    remediation = (
+        "Run the following once, then re-run: voipbin-install apply\n\n"
+        "    gcloud compute config-ssh\n\n"
+        "This generates ~/.ssh/google_compute_engine if missing and\n"
+        "uploads the matching public key to your OS Login profile."
+    )
+
+    key_path = Path(os.path.expanduser("~/.ssh/google_compute_engine"))
+    if not key_path.exists():
+        return (
+            f"OS Login SSH key not found at {key_path}.\n\n{remediation}"
+        )
+
+    result = run_cmd(
+        ["gcloud", "compute", "os-login", "describe-profile",
+         "--format=value(posixAccounts[0].username)"],
+        timeout=30,
+    )
+    if result.returncode != 0:
+        return (
+            "Could not query OS Login profile. Ensure your active gcloud\n"
+            "account has the 'Service Account User' and 'Compute OS Login'\n"
+            f"IAM roles, then re-run.\n\n{remediation}"
+        )
+    username = result.stdout.strip()
+    if not username:
+        return (
+            "OS Login profile has no POSIX account yet.\n\n" + remediation
+        )
+
+    pub_result = run_cmd(
+        ["gcloud", "compute", "os-login", "ssh-keys", "list",
+         "--format=value(key)"],
+        timeout=30,
+    )
+    if pub_result.returncode != 0 or not pub_result.stdout.strip():
+        return (
+            "OS Login profile has no SSH keys registered.\n\n" + remediation
+        )
+    return None
 
 
 def check_loadbalancer_addresses(terraform_outputs: dict[str, str]) -> list[str]:

@@ -55,9 +55,14 @@ resource "google_compute_firewall" "fw_rtpengine_control" {
   source_tags = ["kamailio"]
 }
 
-# IAP SSH — allow Google IAP tunnel range for SSH access
-resource "google_compute_firewall" "fw_iap_ssh" {
-  name    = "${var.env}-fw-iap-ssh"
+# VM SSH — allow operator SSH ingress to Kamailio and RTPEngine VMs.
+# Authentication is enforced by OS Login (publickey-only + IAM-bound POSIX
+# usernames). 0.0.0.0/0 is intentional: OS Login + publickey-only renders
+# IP-level allowlisting redundant for the threat model VoIPBin targets
+# (self-hosted SMB/dev). Operators wanting tighter ingress can override
+# source_ranges via a custom terraform overlay.
+resource "google_compute_firewall" "fw_vm_ssh" {
+  name    = "${var.env}-fw-vm-ssh"
   network = google_compute_network.voipbin.id
 
   allow {
@@ -66,7 +71,7 @@ resource "google_compute_firewall" "fw_iap_ssh" {
   }
 
   target_tags   = ["kamailio", "rtpengine"]
-  source_ranges = ["35.235.240.0/20"]
+  source_ranges = ["0.0.0.0/0"]
 }
 
 # GKE internal — allow GKE pods to reach Redis and RabbitMQ

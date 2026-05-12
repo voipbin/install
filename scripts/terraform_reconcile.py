@@ -331,7 +331,7 @@ def build_registry(config: InstallerConfig) -> list[dict[str, Any]]:
         ("fw_allow_internal",    "voipbin-fw-allow-internal",    "Firewall: internal"),
         ("fw_gke_internal",      "voipbin-fw-gke-internal",      "Firewall: GKE internal"),
         ("fw_healthcheck",       "voipbin-fw-healthcheck",       "Firewall: health check"),
-        ("fw_iap_ssh",           "voipbin-fw-iap-ssh",           "Firewall: IAP SSH"),
+        ("fw_vm_ssh",            "voipbin-fw-vm-ssh",            "Firewall: VM SSH (OS Login)"),
         ("fw_kamailio_sip",      "voipbin-fw-kamailio-sip",      "Firewall: Kamailio SIP"),
         ("fw_rtpengine_control", "voipbin-fw-rtpengine-control", "Firewall: RTPEngine control"),
         ("fw_rtpengine_rtp",     "voipbin-fw-rtpengine-rtp",     "Firewall: RTPEngine RTP"),
