@@ -112,6 +112,8 @@ def test_state_bucket_gcloud_flags_valid_syntax() -> None:
     # Branch B: bucket exists → describe-ok, update-ok
     argvs_b = _capture_argvs(lambda i, cmd: _FakeCompleted(rc=0))
 
+    import re
+
     seen_subcommands: set[tuple] = set()
     failures: list[str] = []
 
@@ -125,21 +127,53 @@ def test_state_bucket_gcloud_flags_valid_syntax() -> None:
             if tok.startswith("-") or tok.startswith("gs://"):
                 break
             sub.append(tok)
-        flags = [tok.split("=", 1)[0] for tok in argv[1:] if tok.startswith("--")]
+        # Keep raw tokens so we can distinguish `--flag` from `--flag=value`.
+        raw_flag_tokens = [tok for tok in argv[1:] if tok.startswith("--")]
         key = tuple(sub)
-        if key in seen_subcommands and not flags:
+        if key in seen_subcommands and not raw_flag_tokens:
             continue
         seen_subcommands.add(key)
         help_text = _gcloud_help_text(sub)
-        for flag in flags:
+
+        for tok in raw_flag_tokens:
+            if "=" in tok:
+                flag, _value = tok.split("=", 1)
+            else:
+                flag, _value = tok, None
+
+            # (1) Flag name must appear in help at all.
             if flag not in help_text:
                 failures.append(
                     f"{flag!r} not found in `gcloud {' '.join(sub)} --help`; "
                     f"full argv: {argv}"
                 )
+                continue
+
+            # (2) GAP-33 shape: `--flag=value` passed to a documented BOOLEAN
+            # flag. gcloud documents booleans as `--[no-]flagname`. Using the
+            # `=value` form on such a flag is rejected at runtime — this is
+            # exactly the incident that motivated this test.
+            flag_name = flag[2:]  # strip leading `--`
+            bool_pattern = re.compile(
+                r"--\[no-\]" + re.escape(flag_name) + r"\b"
+            )
+            value_pattern = re.compile(
+                r"--" + re.escape(flag_name) + r"=[A-Z_]"
+            )
+            is_boolean = bool(bool_pattern.search(help_text))
+            takes_value = bool(value_pattern.search(help_text))
+
+            if _value is not None and is_boolean and not takes_value:
+                failures.append(
+                    f"{flag!r} is documented as a boolean (`--[no-]{flag_name}`) "
+                    f"in `gcloud {' '.join(sub)} --help` but argv passes it the "
+                    f"`=value` form ({tok!r}). This is the GAP-33 incident shape "
+                    f"(`--public-access-prevention=enforced`) — gcloud rejects "
+                    f"it at runtime. Full argv: {argv}"
+                )
 
     assert not failures, (
-        "gcloud flag(s) absent from `gcloud --help` — this is the GAP-33 shape:\n  - "
+        "gcloud flag(s) misuse vs `gcloud --help` — GAP-33 shape:\n  - "
         + "\n  - ".join(failures)
     )
 
