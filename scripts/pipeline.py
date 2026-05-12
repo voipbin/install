@@ -273,13 +273,18 @@ def _run_reconcile_k8s_outputs(
     dry_run: bool,
     auto_approve: bool,  # unused; uniform signature with other runners
 ) -> bool:
-    """Harvest k8s LoadBalancer externalIPs and merge into outputs + persist.
+    """Harvest k8s LoadBalancer externalIPs and merge into outputs.
 
     PR-R: this stage runs AFTER k8s_apply and BEFORE ansible_run. The
     harvested IPs are merged into the in-memory outputs dict so the very
-    next stage (ansible_run via _write_extra_vars) sees them, and ALSO
-    persisted into state.yaml.k8s_outputs so subsequent --stage ansible_run
-    invocations (separate CLI calls) can rehydrate them.
+    next stage (ansible_run via _write_extra_vars) sees them.
+
+    Persistence to state.yaml.k8s_outputs is performed by the caller
+    (run_pipeline) after this stage returns, not here, so that the main
+    loop's state["stages"] save does not clobber an out-of-band write
+    from this function (PR-T2 fix). The merged outputs dict is the
+    source of truth in-process; the caller copies the LB IP subset from
+    it into state and writes a single consistent save_state call.
     """
     from scripts.k8s import harvest_loadbalancer_ips
     if dry_run:
@@ -287,15 +292,11 @@ def _run_reconcile_k8s_outputs(
         return True
     lb_ips = harvest_loadbalancer_ips()
     outputs.update(lb_ips)
-    # Persist (MERGE not replace) so a partial re-harvest does not delete
-    # previously good keys (e.g. GCP flake on one Service in a rerun).
-    state = load_state()
-    existing = state.get("k8s_outputs") or {}
-    if not isinstance(existing, dict):
-        existing = {}
-    existing.update(lb_ips)
-    state["k8s_outputs"] = existing
-    save_state(state)
+    # Stash the freshly-harvested subset on the outputs dict under a
+    # private sentinel key so the caller knows which keys are LB IPs
+    # (vs. terraform output keys also merged into the same dict). The
+    # caller pops this before downstream stages see outputs.
+    outputs["__pr_t2_harvested_lb_ips__"] = dict(lb_ips)
     return True
 
 
@@ -424,6 +425,26 @@ def run_pipeline(
 
         stages[stage_name] = "complete"
         state["stages"] = stages
+
+        # PR-T2: reconcile_k8s_outputs stashes its harvest result on the
+        # outputs dict under a sentinel key. Merge it into state["k8s_outputs"]
+        # HERE (in the same state object the main loop saves) so the
+        # subsequent save_state writes a single consistent snapshot. Doing
+        # the persist inside the stage function created two writers racing
+        # on the same file and the main loop's save clobbered the stage's
+        # k8s_outputs write.
+        if stage_name == "reconcile_k8s_outputs":
+            harvested = tf_outputs.pop("__pr_t2_harvested_lb_ips__", None)
+            if isinstance(harvested, dict) and harvested:
+                existing = state.get("k8s_outputs") or {}
+                if not isinstance(existing, dict):
+                    existing = {}
+                # MERGE not replace so a partial re-harvest does not delete
+                # previously good keys (e.g. GCP flake on one Service in a
+                # rerun).
+                existing.update(harvested)
+                state["k8s_outputs"] = existing
+
         save_state(state)
 
         # Refresh Terraform outputs after apply stage

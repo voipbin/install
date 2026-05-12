@@ -217,7 +217,11 @@ class TestHarvestLoadbalancerIps:
 
 class TestRunReconcileK8sOutputsRunner:
 
-    def test_runner_merges_into_outputs_and_persists(self, tmp_path):
+    def test_runner_merges_into_outputs_and_stashes_sentinel(self):
+        """PR-T2: stage no longer calls save_state directly. It merges the
+        harvest into outputs (so the next stage sees it) and stashes a copy
+        under the `__pr_t2_harvested_lb_ips__` sentinel so the main loop
+        can persist atomically alongside the stages-complete save."""
         cfg = MagicMock()
         outputs: dict = {}
         harvested = {"redis_lb_ip": "10.99.0.5", "rabbitmq_lb_ip": "10.99.0.6"}
@@ -225,17 +229,22 @@ class TestRunReconcileK8sOutputsRunner:
         with patch(
             "scripts.k8s.harvest_loadbalancer_ips", return_value=harvested
         ), patch(
-            "scripts.pipeline.load_state", return_value={}
-        ) as load_mock, patch(
             "scripts.pipeline.save_state"
         ) as save_mock:
             ok = _run_reconcile_k8s_outputs(cfg, outputs, False, False)
 
         assert ok is True
-        assert outputs == harvested  # merged into in-memory dict
-        assert save_mock.called
-        saved_state = save_mock.call_args.args[0]
-        assert saved_state["k8s_outputs"] == harvested
+        # In-memory outputs got the LB IP keys merged.
+        for k, v in harvested.items():
+            assert outputs[k] == v
+        # Sentinel key carries an INDEPENDENT copy of the harvested dict
+        # (mutating outputs later must not corrupt persistence).
+        assert outputs["__pr_t2_harvested_lb_ips__"] == harvested
+        # PR-T2: stage MUST NOT call save_state itself.
+        assert not save_mock.called, (
+            "PR-T2 regression: _run_reconcile_k8s_outputs called save_state. "
+            "Persistence is the caller's responsibility now."
+        )
 
     def test_dry_run_skips_harvest_and_persistence(self):
         cfg = MagicMock()
@@ -248,43 +257,25 @@ class TestRunReconcileK8sOutputsRunner:
         assert not harvest_mock.called
         assert not save_mock.called
         assert outputs == {}
+        # Dry-run path also must not leak the sentinel.
+        assert "__pr_t2_harvested_lb_ips__" not in outputs
 
-    def test_partial_reharvest_preserves_prior_keys(self):
-        """Prior persisted dict has 5 keys. This run harvests only 2.
-        Merged result must still have all 5 (3 prior + 2 new overrides)."""
+    def test_sentinel_is_independent_copy(self):
+        """Mutating the harvest dict after stage return must not affect
+        the sentinel value the caller will persist."""
         cfg = MagicMock()
         outputs: dict = {}
-        prior = {
-            "redis_lb_ip": "old_redis",
-            "rabbitmq_lb_ip": "old_rabbit",
-            "asterisk_call_lb_ip": "old_call",
-            "asterisk_registrar_lb_ip": "old_reg",
-            "asterisk_conference_lb_ip": "old_conf",
-        }
-        new = {
-            "redis_lb_ip": "new_redis",
-            "rabbitmq_lb_ip": "new_rabbit",
-        }
+        harvested = {"redis_lb_ip": "10.99.0.5"}
         with patch(
-            "scripts.k8s.harvest_loadbalancer_ips", return_value=new
-        ), patch(
-            "scripts.pipeline.load_state", return_value={"k8s_outputs": dict(prior)}
-        ), patch(
-            "scripts.pipeline.save_state"
-        ) as save_mock:
+            "scripts.k8s.harvest_loadbalancer_ips", return_value=harvested
+        ), patch("scripts.pipeline.save_state"):
             _run_reconcile_k8s_outputs(cfg, outputs, False, False)
-
-        saved = save_mock.call_args.args[0]["k8s_outputs"]
-        # All 5 keys present; the 2 new ones override, 3 prior preserved.
-        assert set(saved.keys()) == {
-            "redis_lb_ip",
-            "rabbitmq_lb_ip",
-            "asterisk_call_lb_ip",
-            "asterisk_registrar_lb_ip",
-            "asterisk_conference_lb_ip",
+        # Mutate the source dict.
+        harvested["redis_lb_ip"] = "mutated"
+        # Sentinel is unaffected.
+        assert outputs["__pr_t2_harvested_lb_ips__"] == {
+            "redis_lb_ip": "10.99.0.5"
         }
-        assert saved["redis_lb_ip"] == "new_redis"
-        assert saved["asterisk_call_lb_ip"] == "old_call"
 
 
 # ----- TestPrRStateMigration ----------------------------------------------
