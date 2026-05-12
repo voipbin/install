@@ -83,6 +83,15 @@ CONFIG_SCHEMA = {
                 "NetworkPolicies. Defaults to <cloudsql_private_ip>/32."
             ),
         },
+        "cloudsql_postgres_private_ip": {
+            "type": "string",
+            "description": (
+                "Cloud SQL Postgres private IP. Auto-populated by "
+                "reconcile_outputs from Terraform output "
+                "`cloudsql_postgres_private_ip` (PR-D1). PR-D2 will use this "
+                "as the host segment when building per-app DSN secrets."
+            ),
+        },
         "recordings_bucket": {
             "type": "string",
             "description": (
