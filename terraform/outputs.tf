@@ -35,7 +35,14 @@ output "kamailio_internal_ips" {
 
 output "kamailio_external_ips" {
   description = "Ephemeral external IP addresses of Kamailio VMs (used by Ansible over OS Login)"
-  value       = google_compute_instance.kamailio[*].network_interface[0].access_config[0].nat_ip
+  # NOTE: a bare splat through the nested access_config block silently
+  # evaluates to [null] across some provider versions. The explicit
+  # for-expression below forces per-instance evaluation and returns the
+  # live nat_ip. See PR-O1 / GAP-41.
+  value = [
+    for inst in google_compute_instance.kamailio :
+    try(inst.network_interface[0].access_config[0].nat_ip, "")
+  ]
 }
 
 ###############################################################################
