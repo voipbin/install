@@ -7,6 +7,7 @@ from typing import Any
 
 from scripts.config import InstallerConfig
 from scripts.display import print_error, print_step, print_success
+from scripts.state_bucket import ensure_state_bucket, state_bucket_name
 from scripts.utils import INSTALLER_DIR, run_cmd
 
 
@@ -26,9 +27,14 @@ def write_tfvars(config: InstallerConfig) -> Path:
 def terraform_init(config: InstallerConfig) -> bool:
     """Run terraform init. Returns True on success."""
     write_tfvars(config)
+    if not ensure_state_bucket(config):
+        print_error("terraform init aborted: state bucket bootstrap failed")
+        return False
     project_id = config.get("gcp_project_id", "")
+    bucket = state_bucket_name(config)
     cmd = [
         "terraform", f"-chdir={TERRAFORM_DIR}", "init",
+        f"-backend-config=bucket={bucket}",
         f"-backend-config=prefix=voipbin/{project_id}",
     ]
     print_step("Running: terraform init")

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from scripts.display import confirm, print_error, print_fix, print_success, print_warning
 from scripts.gcp import check_billing_tristate, check_quotas, check_required_apis
+from scripts.state_bucket import state_bucket_name
 from scripts.utils import check_tool_exists, run_cmd
 
 if TYPE_CHECKING:
@@ -199,7 +200,7 @@ def diagnose_stage_failure(config: InstallerConfig, stage: str) -> list[str]:
 
     # Stage-specific checks
     if stage in ("terraform_init", "reconcile_imports", "reconcile_outputs", "terraform_apply"):
-        bucket = f"gs://{project_id}-voipbin-tf-state"
+        bucket = f"gs://{state_bucket_name(config)}"
         r = run_cmd(["gcloud", "storage", "ls", bucket, f"--project={project_id}"])
         if r.returncode != 0:
             hints.append(

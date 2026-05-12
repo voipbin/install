@@ -14,6 +14,7 @@ from rich.table import Table
 
 from scripts.config import InstallerConfig
 from scripts.display import confirm, console, print_error, print_step, print_success, print_warning
+from scripts.state_bucket import state_bucket_name
 from scripts.terraform import TERRAFORM_DIR, terraform_state_list
 from scripts.utils import _validate_cmd_arg, run_cmd
 
@@ -348,8 +349,8 @@ def build_registry(config: InstallerConfig) -> list[dict[str, Any]]:
         "tf_address":   "google_storage_bucket.terraform_state",
         "description":  "GCS TF State Bucket",
         "gcloud_check": ["gcloud", "storage", "buckets", "describe",
-                         f"gs://{project}-voipbin-tf-state", f"--project={project}"],
-        "import_id":    f"{project}-voipbin-tf-state",
+                         f"gs://{state_bucket_name(config)}", f"--project={project}"],
+        "import_id":    state_bucket_name(config),
     })
     entries.append({
         "tf_address":   "google_storage_bucket.recordings",
