@@ -122,6 +122,8 @@ spec:
                 - ping
             initialDelaySeconds: 30
             periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 6
           readinessProbe:
             exec:
               command:
@@ -130,6 +132,8 @@ spec:
                 - check_running
             initialDelaySeconds: 20
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
       volumes:
         - name: rabbitmq-data
           persistentVolumeClaim:
