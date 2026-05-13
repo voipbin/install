@@ -44,7 +44,11 @@ class TestAnsibleRunCwd:
     def test_ansible_run_passes_cwd_ansible_dir(self, mock_run_cmd):
         mock_run_cmd.return_value = MagicMock(returncode=0)
         from scripts.ansible_runner import ansible_run
-        cfg = _make_config({"gcp_project_id": "p1", "zone": "z1"})
+        # PR-U-3: disable HOMER capture to skip the heplify preflight which
+        # otherwise hard-fails with empty terraform_outputs.
+        cfg = _make_config({
+            "gcp_project_id": "p1", "zone": "z1", "homer_enabled": False,
+        })
         ansible_run(cfg, {})
         assert mock_run_cmd.called
         _, kwargs = mock_run_cmd.call_args
@@ -71,7 +75,10 @@ class TestAnsibleRunCwd:
         """env must pin ANSIBLE_CONFIG to repo ansible.cfg and strip overrides."""
         mock_run_cmd.return_value = MagicMock(returncode=0)
         from scripts.ansible_runner import ansible_run
-        cfg = _make_config({"gcp_project_id": "p1", "zone": "z1"})
+        # PR-U-3: disable HOMER capture to skip the heplify preflight.
+        cfg = _make_config({
+            "gcp_project_id": "p1", "zone": "z1", "homer_enabled": False,
+        })
         # Simulate a hostile parent env with operator-exported overrides.
         import os
         with patch.dict(os.environ, {
