@@ -24,8 +24,11 @@ def _install_ansible_collections() -> bool:
 
     No-op when the file is absent. Surfaces a clear error and returns False
     when ``ansible-galaxy`` fails. Fix for D4 F1 (PR-Z): ensure the
-    community.crypto / community.general collections the cert deploy task
-    relies on are present before the playbook runs.
+    ``ansible.posix`` (for the ``ansible.posix.synchronize`` cert deploy
+    task) and ``community.docker`` (for ``docker_compose_v2`` /
+    ``docker_prune``) collections the kamailio role relies on are present
+    before the playbook runs. The authoritative collection list lives in
+    ``ansible/requirements.yml``.
     """
     if not REQUIREMENTS_YML.exists():
         return True
@@ -209,6 +212,15 @@ def _write_extra_vars(
     ansible_vars["kamailio_auth_db_url"] = _build_kamailio_auth_db_url(
         config, terraform_outputs
     )
+    # PR-Z D5/D6/D7 fix: pass cert_staging_dir as an extra-var so the
+    # kamailio role's synchronize task can reference a stable absolute
+    # path. ``{{ playbook_dir }}/../.cert-staging/`` resolves relative to
+    # ansible/playbooks/ and yields ansible/.cert-staging/, NOT
+    # INSTALLER_DIR/.cert-staging/ where the cert_provision pipeline
+    # stage actually writes the PEMs. The role asserts this directory
+    # exists before running synchronize.
+    from scripts.pipeline import CERT_STAGING_DIRNAME
+    ansible_vars["cert_staging_dir"] = str(INSTALLER_DIR / CERT_STAGING_DIRNAME)
     # Create temp file with restricted permissions (owner-only read/write)
     fd = tempfile.mkstemp(suffix=".json", prefix="voipbin_extra_vars_")
     os.fchmod(fd[0], 0o600)

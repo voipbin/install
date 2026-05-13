@@ -134,3 +134,43 @@ class TestCertCliCommands:
         out = capsys.readouterr().out
         # Remediation hint mentions init
         assert "init" in out.lower()
+
+
+class TestCertRenewForceDoesNotRotateCa:
+    """PR-Z D5/D6/D7 fix #3: ``cert renew --force`` re-issues LEAVES only.
+
+    The CA in secrets.yaml + the CA metadata in state.yaml must survive a
+    --force renewal. CA rotation is a separate manual procedure documented
+    in docs/operator/cert.md. This test pins the contract: --force clears
+    only ``state.yaml.cert_state.leaf_certs``, NOT ``ca_fingerprint_sha256``
+    or ``ca_not_after``.
+    """
+
+    def test_force_preserves_ca_metadata_in_state(self, tmp_path, monkeypatch):
+        _seed_state(tmp_path, monkeypatch)
+        (tmp_path / "config.yaml").write_text(
+            "gcp_project_id: voipbin-test-1\n"
+            "region: us-central1\n"
+            "domain: example.com\n"
+            "cert_mode: self_signed\n"
+        )
+        monkeypatch.chdir(tmp_path)
+
+        # Capture CA fingerprint before --force.
+        st_before = pl.load_state()["cert_state"]
+        ca_fp_before = st_before["ca_fingerprint_sha256"]
+        ca_na_before = st_before["ca_not_after"]
+
+        monkeypatch.setattr(
+            "scripts.pipeline.run_pipeline",
+            lambda **kw: True,
+        )
+        rc = cmd_cert_renew(force=True)
+        assert rc == 0
+
+        st_after = pl.load_state()["cert_state"]
+        # --force MUST keep CA identity stable.
+        assert st_after.get("ca_fingerprint_sha256") == ca_fp_before
+        assert st_after.get("ca_not_after") == ca_na_before
+        # --force MUST clear leaf_certs so the short-circuit doesn't fire.
+        assert "leaf_certs" not in st_after

@@ -30,7 +30,7 @@ import secrets as _secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -322,7 +322,7 @@ def run(
     secrets_path: Path,
     domain: str = "",
     valid_days: int = DEFAULT_VALID_DAYS,
-    sops_encrypt: Optional[callable] = None,
+    sops_encrypt: Optional[Callable[[Path], None]] = None,
 ) -> BootstrapResult:
     """Read the sealed file (plaintext or sops-decrypted), seed, write back.
 

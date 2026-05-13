@@ -575,3 +575,90 @@ def test_compute_san_list_pins_sip_registrar():
 def test_compute_san_list_empty_domain_raises():
     with pytest.raises(CertLifecycleError):
         _compute_san_list("")
+
+
+# ---------------------------------------------------------------------------
+# PR-Z D5/D6/D7 fix #2: CA expiry must gate the short-circuit
+# ---------------------------------------------------------------------------
+
+class TestCaExpiryShortCircuit:
+    """``_state_short_circuit_ok`` must verify CA expiry in self_signed
+    mode in addition to leaf expiry — otherwise an installer with leaves
+    that still have 60d but a CA with only 5d left will short-circuit and
+    ship a doomed cert chain to operators. PR-Z review iter D5/D6/D7."""
+
+    from scripts.cert_lifecycle import _state_short_circuit_ok
+
+    SAN_LIST_ = ["sip.example.com", "registrar.example.com"]
+
+    def _make_state(
+        self,
+        *,
+        config_mode: str,
+        leaf_not_after,
+        ca_not_after,
+    ) -> dict:
+        st = {
+            "config_mode": config_mode,
+            "san_list": list(self.SAN_LIST_),
+            "leaf_certs": {
+                san: {
+                    "not_after": leaf_not_after.isoformat(),
+                    "fingerprint_sha256": "AA",
+                    "serial": 1,
+                }
+                for san in self.SAN_LIST_
+            },
+        }
+        if ca_not_after is not None:
+            st["ca_not_after"] = ca_not_after.isoformat()
+        return st
+
+    def test_self_signed_ca_about_to_expire_forces_reissue(self):
+        from scripts.cert_lifecycle import _state_short_circuit_ok
+        now = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        state = self._make_state(
+            config_mode="self_signed",
+            leaf_not_after=now + timedelta(days=300),  # fresh leaves
+            ca_not_after=now + timedelta(days=20),     # CA <30d
+        )
+        assert _state_short_circuit_ok(
+            state, "self_signed", self.SAN_LIST_, now
+        ) is False
+
+    def test_self_signed_ca_fresh_short_circuits(self):
+        from scripts.cert_lifecycle import _state_short_circuit_ok
+        now = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        state = self._make_state(
+            config_mode="self_signed",
+            leaf_not_after=now + timedelta(days=300),
+            ca_not_after=now + timedelta(days=365),
+        )
+        assert _state_short_circuit_ok(
+            state, "self_signed", self.SAN_LIST_, now
+        ) is True
+
+    def test_self_signed_ca_not_after_missing_forces_reissue(self):
+        from scripts.cert_lifecycle import _state_short_circuit_ok
+        now = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        state = self._make_state(
+            config_mode="self_signed",
+            leaf_not_after=now + timedelta(days=300),
+            ca_not_after=None,
+        )
+        assert _state_short_circuit_ok(
+            state, "self_signed", self.SAN_LIST_, now
+        ) is False
+
+    def test_manual_mode_ignores_ca_not_after(self):
+        from scripts.cert_lifecycle import _state_short_circuit_ok
+        now = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        # ca_not_after absent (manual mode has external CA) — still OK.
+        state = self._make_state(
+            config_mode="manual",
+            leaf_not_after=now + timedelta(days=300),
+            ca_not_after=None,
+        )
+        assert _state_short_circuit_ok(
+            state, "manual", self.SAN_LIST_, now
+        ) is True

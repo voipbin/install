@@ -81,11 +81,26 @@ After installing, restart browsers so they reload the trust store.
 
 ## Renewal
 
-Self-signed leaves auto-renew during `voipbin-install apply` when fewer than 30 days of validity remain. To force a renewal:
+Self-signed leaves auto-renew during `voipbin-install apply` when fewer than 30 days of validity remain.
+
+The `cert renew` subcommand re-runs the `cert_provision` stage:
 
 ```
-voipbin-install cert renew --force
+voipbin-install cert renew           # leaves reissued only if <30d remaining
+voipbin-install cert renew --force   # leaves reissued unconditionally
 ```
+
+**Scope of `--force`**: forces re-issuance of LEAF certificates only. The CA in `secrets.yaml` is preserved across `--force` runs — if the existing CA is still valid (>30d remaining), `--force` will issue new leaves signed by that same CA. The CA fingerprint published to operator browsers/trust stores therefore stays stable.
+
+**Rotating the CA itself** (e.g. on operator handoff or suspected compromise) is a separate manual procedure:
+
+```
+sops edit secrets.yaml
+# delete the KAMAILIO_CA_CERT_BASE64 and KAMAILIO_CA_KEY_BASE64 fields, save & exit
+voipbin-install apply --stage cert_provision
+```
+
+The `cert_provision` stage will detect the missing CA keys, mint a fresh CA, re-issue all leaves under it, and update `state.yaml.cert_state.ca_fingerprint_sha256`. Operators must then re-install the new CA in every trust store that pinned the old one. A first-class `voipbin-install cert rotate-ca` subcommand that automates this flow is tracked under PR-AA.
 
 To check current expiry:
 

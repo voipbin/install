@@ -313,6 +313,26 @@ def _state_short_circuit_ok(
             not_after = not_after.replace(tzinfo=timezone.utc)
         if not_after - now <= threshold:
             return False
+    # PR-Z D5/D6/D7 fix: in self_signed mode, the CA must ALSO have more
+    # than ``RENEWAL_THRESHOLD_DAYS`` of remaining validity. If the CA is
+    # about to expire, every leaf it signed is effectively about to lose
+    # its trust chain on the wire — reissue the entire stack rather than
+    # short-circuiting on still-fresh leaf timestamps. Manual mode has no
+    # ca_not_after to check (CA is external).
+    if mode == "self_signed":
+        ca_not_after_str = cert_state.get("ca_not_after")
+        if not isinstance(ca_not_after_str, str):
+            return False
+        try:
+            ca_not_after = datetime.fromisoformat(
+                ca_not_after_str.replace("Z", "+00:00")
+            )
+        except ValueError:
+            return False
+        if ca_not_after.tzinfo is None:
+            ca_not_after = ca_not_after.replace(tzinfo=timezone.utc)
+        if ca_not_after - now <= threshold:
+            return False
     return True
 
 
@@ -416,7 +436,6 @@ def _seed_self_signed(
 
     leaf_certs: dict[str, x509.Certificate] = {}
     for prefix, cert_key, priv_key in KAMAILIO_PAIRS:
-        san = f"{prefix}.{san_list[0].split('.', 1)[1]}" if False else None
         # Map prefix -> SAN by index in KAMAILIO_PAIRS, since san_list
         # ordering is sip then registrar (design §3.1).
         san_index = {"sip": 0, "registrar": 1}[prefix]
