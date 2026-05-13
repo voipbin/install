@@ -6,7 +6,6 @@ import re
 import tempfile
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote as _urlquote
 
 from scripts.config import InstallerConfig
 from scripts.display import print_error, print_step, print_success
@@ -96,13 +95,26 @@ def _build_kamailio_auth_db_url(
     Sources the kamailioro password from terraform outputs and the MySQL host
     from config (populated by terraform_reconcile.py from the
     cloudsql_mysql_private_ip terraform output). Returns "" when either side
-    is missing so dev / early-apply flows do not crash. Raises RuntimeError
-    if the password contains characters outside the locked URL-safe alphabet
-    so a future alphabet widening is caught loudly. Percent-encodes the
-    password via urllib.parse.quote with safe="!*-._~" so locked-alphabet
-    specials round-trip literally and only "+" is encoded to "%2B"; this
-    avoids ambiguity with MySQL URL parsers that treat "+" as form-encoded
-    space.
+    is missing so dev / early-apply flows do not crash.
+
+    The password is emitted RAW (no percent-encoding). Kamailio's db_mysql
+    driver delegates to libmysqlclient, which does NOT percent-decode the
+    password component of the connection URL — it splits on URL-structural
+    delimiters (`://`, `@`, `:`, `/`) and passes the password bytes through
+    verbatim. Percent-encoding the password causes MySQL to reject auth at
+    runtime ("Access denied for user 'kamailioro'@..."). Discovered in
+    dogfood iter#11 (2026-05-13) and verified live with `mysql` client:
+    raw password authenticates, percent-encoded password is denied.
+
+    The earlier code rationale ("avoids ambiguity with MySQL URL parsers
+    that treat '+' as form-encoded space") confused HTTP form-encoding
+    conventions with MySQL connection-string parsing — libmysqlclient
+    does not implement form-encoding semantics on the password component.
+
+    Raises RuntimeError if the password contains characters outside the
+    locked URL-safe alphabet. The alphabet excludes URL-structural
+    characters (`:`, `/`, `@`, `?`, `#`, space, `%`), so raw emission
+    cannot collide with URL delimiters as long as the regex stays tight.
     """
     raw_password = terraform_outputs.get("cloudsql_mysql_password_kamailioro", "")
     if raw_password is None:
@@ -114,11 +126,10 @@ def _build_kamailio_auth_db_url(
         raise RuntimeError(
             "kamailioro password contains characters outside the locked "
             "URL-safe alphabet (A-Za-z0-9 + '!*+-._~'). Update terraform "
-            "override_special and the URL escape logic together. "
+            "override_special and this URL builder together. "
             "See docs/operations/cloudsql-credentials.md."
         )
-    encoded = _urlquote(raw_password, safe="!*-._~")
-    return f"mysql://kamailioro:{encoded}@{mysql_host}:3306/asterisk"
+    return f"mysql://kamailioro:{raw_password}@{mysql_host}:3306/asterisk"
 
 
 def _build_rtpengine_socks(terraform_outputs: dict[str, Any]) -> str:
