@@ -92,28 +92,31 @@ def m3() -> None:
     mutate(SHIM, "kamailio_external_lb_ip", "kamailio_external_ip")
 
 
-# M4: move shim AFTER docker pull (ordering)
-@mutant("M4 wrong ordering")
+# M4: move shim install task block to AFTER docker pull (true ordering mutation)
+@mutant("M4 wrong ordering (block moved after pull)")
 def m4() -> None:
     text = TASKS.read_text()
+    # Extract the entire 3-task shim block (from its leading comment through
+    # the "Enable and start" task) and re-insert AFTER the "Pull latest Docker
+    # images" task.
+    block_start = text.index("# --- Forwarded LB IP local-route shim (PR-AC-2) ---")
+    # Block ends right before the next "# --- Docker pull and start ---" section
+    block_end = text.index("# --- Docker pull and start ---", block_start)
+    shim_block = text[block_start:block_end]
+    # Remove block from original position
+    text_without = text[:block_start] + text[block_end:]
+    # Find the end of the "Pull latest Docker images" task (insert after it)
     pull_marker = "- name: Pull latest Docker images"
-    pull_pos = text.index(pull_marker)
-    # Simplest mutation that makes ordering test fail: rename pull to come
-    # before shim script. We rename the shim task to use a name that sorts
-    # *after* pull index, by deleting the shim task definition and reinserting
-    # at end. Cheap version: rename pull task earlier than shim_idx by reading
-    # task entries and reordering is verbose; instead make pull task disappear
-    # then put it ABOVE the shim block.
-    # Just swap the two task names so ordering test catches inversion:
-    text = text.replace(
-        "- name: Install forwarded-LB-IP shim script",
-        "- name: ZZZ forwarded-LB-IP shim script",
-        1,
+    pull_idx = text_without.index(pull_marker)
+    # Find next blank-line boundary after pull task
+    next_task = text_without.index("\n- name:", pull_idx + len(pull_marker))
+    new_text = (
+        text_without[: next_task + 1]
+        + shim_block.rstrip() + "\n\n"
+        + text_without[next_task + 1 :]
     )
-    # And also move the marker the test searches for:
-    # Actually test looks up by exact "Install forwarded-LB-IP shim script"
-    # so renaming makes it absent and TestShimTasksPresent catches it.
-    TASKS.write_text(text)
+    assert new_text != text, "M4 precondition: failed to relocate shim block"
+    TASKS.write_text(new_text)
 
 
 # M5: remove empty-string guard from shim

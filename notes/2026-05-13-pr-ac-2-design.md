@@ -155,6 +155,13 @@ policy may bring kamailio up before any ansible run.
   dev did): our oneshot adds the route on boot. We are no longer at the
   mercy of guest-agent's release schedule.
 
+- **Operational canary (R3 review):** On production the shim is expected to
+  remain a no-op and journal entries should always say `route present: ...`.
+  A `route added: ...` line in production journal is the canary that
+  guest-agent's forwarded-IP module has regressed and the shim is now the
+  sole mechanism keeping Kamailio's bind alive. Pages/alerts on this line
+  are an operational followup (separate ticket).
+
 ## Out of scope (with explicit followup tracking)
 
 - monorepo `voip-kamailio-ansible` parity (porting the same systemd unit
