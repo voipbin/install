@@ -55,6 +55,13 @@
     recursive: true
     rsync_opts:
       - "--chmod=D700,F600"
+    # PR-AB-1: receiver-side rsync exec'd through sudo so the
+    # voipbin SSH user can write under root-owned
+    # /opt/kamailio-docker/certs/. Controller-side stays
+    # become: false (no sudo prompt on operator localhost, the
+    # iter#9 failure mode PR-AB fixed). Discovered in iter#10
+    # (2026-05-13).
+    rsync_path: "sudo rsync"
   delegate_to: localhost
   become: false
   notify: Recreate kamailio containers
