@@ -97,6 +97,16 @@ services:
     container_name: kamailio-heplify
     restart: unless-stopped
     network_mode: host
+    # The sipcapture/heplify:1.56 image leaves ENTRYPOINT empty
+    # (CMD defaults to `./heplify -h`). When compose-v2 starts the
+    # container, the first element of `command:` is interpreted as the
+    # executable. Without an explicit entrypoint, `-i` would be treated
+    # as the program to exec, producing
+    #   exec: "-i": executable file not found in $PATH
+    # at runtime (caught in v6 dogfood iteration #5). Pin the executable
+    # via `entrypoint:` so `command:` carries only flags, matching the
+    # production voip-kamailio-docker pattern.
+    entrypoint: ["./heplify"]
     command:
       - "-i"
       - "any"
