@@ -15,11 +15,20 @@ raised ``ImportError: cannot import name 'gcp_inventory' from
 between PR-N (May 12 2026) and PR-W (May 13 2026, this fix).
 
 Fix: load the real module via importlib at session start and register it in
-sys.modules under both ``ansible.inventory`` (as a synthetic package wrapping
-the system one) and ``ansible.inventory.gcp_inventory``. This is test-only
-shim. The production loader (Ansible's dynamic inventory invocation) executes
+sys.modules under both ``ansible.inventory`` (as a synthetic stand-in
+package that does NOT wrap the system one) and
+``ansible.inventory.gcp_inventory``. This is a test-only shim. The
+production loader (Ansible's dynamic inventory invocation) executes
 ``gcp_inventory.py`` directly via ``--inventory inventory/gcp_inventory.py``
 and is unaffected.
+
+Compatibility with a future ``ansible/inventory/__init__.py``: when a
+developer later adds that file (the "proper" fix), the shim will detect
+the pre-existing real ``ansible.inventory`` package in sys.modules and
+will EXTEND its ``__path__`` rather than overwriting the module, so the
+real package's module-level side effects continue to run. The shim also
+sentinel-tags the synthetic package it creates so a subsequent re-run can
+distinguish "we own this" from "system code owns this".
 
 This file MUST live at ``tests/conftest.py`` (not a subdir) so pytest
 discovers it before collecting any test that imports from
@@ -36,16 +45,30 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _GCP_INVENTORY_PATH = _REPO_ROOT / "ansible" / "inventory" / "gcp_inventory.py"
+_SHIM_SENTINEL = "_voipbin_install_test_shim"
 
 
 def _register_gcp_inventory_shim() -> None:
     """Make ``ansible.inventory.gcp_inventory`` importable from the repo path.
 
-    Idempotent: re-importing this conftest (e.g. pytest --collect-only twice
-    in the same process) leaves sys.modules in a consistent state.
+    Idempotent and robust to:
+      - Re-import in the same process (e.g. pytest re-collection).
+      - A pre-existing real ``ansible`` package (we extend, not replace).
+      - A pre-existing real ``ansible.inventory`` package with its own
+        ``__init__.py`` (we extend its ``__path__``).
+      - ``del sys.modules["ansible.inventory.gcp_inventory"]`` reload
+        patterns (we re-register).
     """
-    if "ansible.inventory.gcp_inventory" in sys.modules:
-        return  # already registered
+    # Strong idempotency: all three modules must be in place AND the leaf's
+    # __file__ must match the pinned path. Otherwise re-install.
+    existing = sys.modules.get("ansible.inventory.gcp_inventory")
+    if (
+        existing is not None
+        and Path(getattr(existing, "__file__", "") or "") == _GCP_INVENTORY_PATH
+        and "ansible" in sys.modules
+        and "ansible.inventory" in sys.modules
+    ):
+        return
 
     if not _GCP_INVENTORY_PATH.is_file():
         # If the file moves, fail loudly during collection rather than at
@@ -54,33 +77,54 @@ def _register_gcp_inventory_shim() -> None:
         raise RuntimeError(
             f"conftest.py expected {_GCP_INVENTORY_PATH} to exist; "
             "the install repo no longer ships the dynamic inventory at "
-            "this path. Update conftest.py and any tests that import "
-            "ansible.inventory.gcp_inventory."
+            "this path. Update conftest.py _GCP_INVENTORY_PATH and any "
+            "tests that import ansible.inventory.gcp_inventory."
         )
 
-    # Build a synthetic ``ansible.inventory`` package that exposes our
-    # gcp_inventory.py without disturbing the rest of the (system) ansible
-    # package. We deliberately do NOT import the system 'ansible' here --
-    # the tests only need .inventory.gcp_inventory, so a fresh stand-in
-    # package is enough and avoids pulling in the system ansible runtime.
+    # 1. ``ansible`` package: respect any pre-existing real one; only create
+    #    a synthetic stand-in if nothing else has registered it. The
+    #    synthetic stand-in is tagged so the next call can recognize it.
     ansible_pkg = sys.modules.get("ansible")
     if ansible_pkg is None:
         ansible_pkg = types.ModuleType("ansible")
-        ansible_pkg.__path__ = []  # mark as package
+        # Empty __path__: we deliberately do NOT want filesystem-based
+        # submodule discovery on the synthetic stand-in. Submodules are
+        # only what we explicitly register.
+        ansible_pkg.__path__ = []
+        setattr(ansible_pkg, _SHIM_SENTINEL, True)
         sys.modules["ansible"] = ansible_pkg
 
+    # 2. ``ansible.inventory`` subpackage: same policy. If a real one is
+    #    already loaded (future ``ansible/inventory/__init__.py``), extend
+    #    its __path__ to include our directory so it can still find
+    #    gcp_inventory as a sibling; otherwise synthesize a stand-in.
     inv_pkg_name = "ansible.inventory"
-    inv_pkg = types.ModuleType(inv_pkg_name)
-    inv_pkg.__path__ = [str(_GCP_INVENTORY_PATH.parent)]
-    sys.modules[inv_pkg_name] = inv_pkg
-    setattr(ansible_pkg, "inventory", inv_pkg)
+    inv_pkg = sys.modules.get(inv_pkg_name)
+    if inv_pkg is None:
+        inv_pkg = types.ModuleType(inv_pkg_name)
+        inv_pkg.__path__ = [str(_GCP_INVENTORY_PATH.parent)]
+        setattr(inv_pkg, _SHIM_SENTINEL, True)
+        sys.modules[inv_pkg_name] = inv_pkg
+        setattr(ansible_pkg, "inventory", inv_pkg)
+    else:
+        # Real or synthetic from a previous run: ensure our directory is on
+        # __path__ so submodule resolution can find gcp_inventory.py.
+        path_list = getattr(inv_pkg, "__path__", None)
+        if path_list is None:
+            inv_pkg.__path__ = [str(_GCP_INVENTORY_PATH.parent)]
+        elif str(_GCP_INVENTORY_PATH.parent) not in list(path_list):
+            try:
+                path_list.append(str(_GCP_INVENTORY_PATH.parent))
+            except AttributeError:
+                # _NamespacePath etc. may not support append; fall back to
+                # a fresh list.
+                inv_pkg.__path__ = list(path_list) + [str(_GCP_INVENTORY_PATH.parent)]
 
+    # 3. The leaf module: load explicitly from the pinned path. Always re-
+    #    register so a reload pattern in some test cannot leave a stale
+    #    entry.
     mod_name = "ansible.inventory.gcp_inventory"
-    spec = importlib.util.spec_from_file_location(
-        mod_name,
-        _GCP_INVENTORY_PATH,
-        submodule_search_locations=None,
-    )
+    spec = importlib.util.spec_from_file_location(mod_name, _GCP_INVENTORY_PATH)
     if spec is None or spec.loader is None:
         raise RuntimeError(
             f"importlib could not build a spec for {_GCP_INVENTORY_PATH}"
