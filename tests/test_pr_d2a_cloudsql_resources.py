@@ -257,7 +257,7 @@ class TestRandomPasswordsAlphabet:
 
 
 class TestSensitiveOutputs:
-    """5 cases. 5 outputs declared sensitive=true with correct value reference."""
+    """6 cases. 6 outputs declared sensitive=true with correct value reference."""
 
     EXPECTED = {
         "cloudsql_mysql_password_bin_manager":
@@ -270,6 +270,8 @@ class TestSensitiveOutputs:
             "random_password.mysql_kamailioro.result",
         "cloudsql_postgres_password_bin_manager":
             "random_password.postgres_bin_manager.result",
+        "cloudsql_postgres_password_homer":
+            "random_password.postgres_homer.result",
     }
 
     @pytest.mark.parametrize("output_name,expected_ref", list(EXPECTED.items()))

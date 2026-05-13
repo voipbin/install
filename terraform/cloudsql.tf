@@ -213,3 +213,40 @@ resource "google_sql_user" "voipbin_postgres_bin_manager" {
   instance = google_sql_database_instance.voipbin_postgres.name
   password = random_password.postgres_bin_manager.result
 }
+
+###############################################################################
+# Cloud SQL Postgres — HOMER user, databases (PR-U-2)
+###############################################################################
+# HOMER (heplify-server + homer-app) uses TWO Postgres databases on the shared
+# CloudSQL Postgres instance:
+#   - homer_data: capture rows (SIP packets, RTCP, logs) written by heplify-server
+#   - homer_config: dashboards, alarms, users, settings managed by homer-app
+# A dedicated `homer` Postgres user owns both. Distinct from `bin-manager` so
+# credentials can be rotated independently and audit logs distinguish HOMER
+# writes from application writes.
+
+resource "random_password" "postgres_homer" {
+  length           = 24
+  special          = true
+  override_special = "!*+-._~"
+}
+
+resource "google_sql_database" "voipbin_postgres_homer_data" {
+  name      = "homer_data"
+  instance  = google_sql_database_instance.voipbin_postgres.name
+  charset   = "UTF8"
+  collation = "en_US.UTF8"
+}
+
+resource "google_sql_database" "voipbin_postgres_homer_config" {
+  name      = "homer_config"
+  instance  = google_sql_database_instance.voipbin_postgres.name
+  charset   = "UTF8"
+  collation = "en_US.UTF8"
+}
+
+resource "google_sql_user" "voipbin_postgres_homer" {
+  name     = "homer"
+  instance = google_sql_database_instance.voipbin_postgres.name
+  password = random_password.postgres_homer.result
+}

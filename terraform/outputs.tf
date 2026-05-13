@@ -120,6 +120,12 @@ output "cloudsql_postgres_password_bin_manager" {
   sensitive   = true
 }
 
+output "cloudsql_postgres_password_homer" {
+  description = "Random password for the homer Postgres application user (heplify-server + homer-app)."
+  value       = random_password.postgres_homer.result
+  sensitive   = true
+}
+
 ###############################################################################
 # Load Balancers
 ###############################################################################
