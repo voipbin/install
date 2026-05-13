@@ -16,6 +16,32 @@ from scripts.utils import INSTALLER_DIR, run_cmd
 ANSIBLE_DIR = INSTALLER_DIR / "ansible"
 PLAYBOOK_SITE = ANSIBLE_DIR / "playbooks" / "site.yml"
 INVENTORY_SCRIPT = ANSIBLE_DIR / "inventory" / "gcp_inventory.py"
+REQUIREMENTS_YML = ANSIBLE_DIR / "requirements.yml"
+
+
+def _install_ansible_collections() -> bool:
+    """Install ansible-galaxy collections listed in ansible/requirements.yml.
+
+    No-op when the file is absent. Surfaces a clear error and returns False
+    when ``ansible-galaxy`` fails. Fix for D4 F1 (PR-Z): ensure the
+    community.crypto / community.general collections the cert deploy task
+    relies on are present before the playbook runs.
+    """
+    if not REQUIREMENTS_YML.exists():
+        return True
+    cmd = [
+        "ansible-galaxy", "collection", "install",
+        "-r", str(REQUIREMENTS_YML),
+    ]
+    print_step("Running: ansible-galaxy collection install")
+    result = run_cmd(
+        cmd, capture=False, timeout=600,
+        cwd=ANSIBLE_DIR, env=_build_ansible_env(),
+    )
+    if result.returncode != 0:
+        print_error("ansible-galaxy collection install failed")
+        return False
+    return True
 
 # Ansible config-related env vars that operators may have exported from their
 # shell profile, CI runner, or direnv. Each one can silently override our
@@ -212,6 +238,8 @@ def ansible_run(
 
     extra_vars_path = _write_extra_vars(config, terraform_outputs)
     try:
+        if not _install_ansible_collections():
+            return False
         project_id = config.get("gcp_project_id", "")
         zone = config.get("zone", "")
         cmd = [
@@ -246,6 +274,8 @@ def ansible_check(
     """Dry-run Ansible with --check. Returns True on success."""
     extra_vars_path = _write_extra_vars(config, terraform_outputs)
     try:
+        if not _install_ansible_collections():
+            return False
         project_id = config.get("gcp_project_id", "")
         zone = config.get("zone", "")
         cmd = [

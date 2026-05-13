@@ -18,11 +18,9 @@ class TestAllowedKeySet:
     def test_thirty_one_total(self):
         # 24 sops-editable (20 secret-class minus JWT_KEY + 3 dsn + 1 voip)
         # plus 5 init-generated (JWT_KEY + 4 SSL_*_BASE64) = 29.
-        # Design §5.3 nominal target is 31 but schema-derived actual is 29
-        # because two keys cited (ENGINE_KEY_CHATGPT routing, etc.) are
-        # accounted-for via rename in BIN_SERVICE_WIRING. Source of truth =
-        # scripts/secret_schema.py.
-        assert len(ALLOWED_SECRET_KEYS) == 29
+        # PR-Z adds 6 KAMAILIO_*_BASE64 keys (CA cert/key + 2 SAN cert/key
+        # pairs), totaling 35. Test name retained for git-archaeology.
+        assert len(ALLOWED_SECRET_KEYS) == 35
 
     def test_contains_jwt_key(self):
         assert "JWT_KEY" in ALLOWED_SECRET_KEYS

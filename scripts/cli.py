@@ -12,6 +12,11 @@ if str(_PROJECT_ROOT) not in sys.path:
 import click
 
 from scripts.commands.apply import cmd_apply
+from scripts.commands.cert import (
+    cmd_cert_clean_staging,
+    cmd_cert_renew,
+    cmd_cert_status,
+)
 from scripts.commands.destroy import cmd_destroy
 from scripts.commands.init import cmd_init
 from scripts.commands.status import cmd_status
@@ -58,6 +63,7 @@ def init(reconfigure, config_path, skip_api_enable, skip_quota_check, dry_run):
         "reconcile_outputs",
         "k8s_apply",
         "reconcile_k8s_outputs",
+        "cert_provision",
         "ansible_run",
         "terraform_reconcile",  # deprecated alias — expands to both new stages
     ]),
@@ -93,6 +99,45 @@ def status(as_json):
 def verify(check_name):
     """Verify VoIPBin deployment health."""
     cmd_verify(check_name=check_name)
+
+
+# ---------------------------------------------------------------------------
+# PR-Z cert subcommand group
+# ---------------------------------------------------------------------------
+
+
+@cli.group()
+def cert():
+    """Manage Kamailio TLS certificates (PR-Z)."""
+
+
+@cert.command("status")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def cert_status(as_json):
+    """Show per-SAN Kamailio TLS cert expiry, mode, and CA fingerprint."""
+    rc = cmd_cert_status(as_json=as_json)
+    if rc:
+        sys.exit(rc)
+
+
+@cert.command("renew")
+@click.option(
+    "--force", is_flag=True,
+    help="Clear state.cert_state.leaf_certs first so short-circuit does not fire",
+)
+def cert_renew(force):
+    """Re-run the cert_provision stage."""
+    rc = cmd_cert_renew(force=force)
+    if rc:
+        sys.exit(rc)
+
+
+@cert.command("clean-staging")
+def cert_clean_staging():
+    """Remove <workdir>/.cert-staging/ if present."""
+    rc = cmd_cert_clean_staging()
+    if rc:
+        sys.exit(rc)
 
 
 if __name__ == "__main__":

@@ -768,6 +768,30 @@ def init_generated_keys() -> set[str]:
     }
 
 
+# ---------------------------------------------------------------------------
+# PR-Z Phase B: Kamailio TLS keys
+# ---------------------------------------------------------------------------
+# Six keys managed by ``scripts.cert_lifecycle.seed_kamailio_certs``. Two CA
+# keys are only present in self_signed mode (omitted in manual mode); the
+# four per-SAN leaf keys are present in both modes. All are optional from a
+# schema standpoint — the audit lives in cert_lifecycle, not the secret
+# validator — but they must be in the allow-list so secretmgr does not
+# reject ``secrets.yaml`` for "unknown key" when cert_provision adds them.
+KAMAILIO_TLS_KEYS: frozenset[str] = frozenset({
+    "KAMAILIO_CA_CERT_BASE64",
+    "KAMAILIO_CA_KEY_BASE64",
+    "KAMAILIO_CERT_SIP_BASE64",
+    "KAMAILIO_PRIVKEY_SIP_BASE64",
+    "KAMAILIO_CERT_REGISTRAR_BASE64",
+    "KAMAILIO_PRIVKEY_REGISTRAR_BASE64",
+})
+
+
+def kamailio_tls_keys() -> set[str]:
+    """Return the PR-Z Kamailio TLS keys allow-listed in secrets.yaml."""
+    return set(KAMAILIO_TLS_KEYS)
+
+
 def all_allowed_secrets_yaml_keys() -> set[str]:
-    """Union: operator-editable + init-generated. 26 + 5 = 31."""
-    return sops_editable_keys() | init_generated_keys()
+    """Union: operator-editable + init-generated + PR-Z Kamailio TLS keys."""
+    return sops_editable_keys() | init_generated_keys() | kamailio_tls_keys()

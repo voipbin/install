@@ -32,6 +32,9 @@ from scripts.pipeline import (
 class TestApplyStagesOrder:
 
     def test_exact_seven_stages_in_new_order(self):
+        # PR-Z extended this to 8 stages by inserting cert_provision
+        # between reconcile_k8s_outputs and ansible_run. Test name retained
+        # for git-archaeology stability; assertion now matches the 8-stage form.
         assert APPLY_STAGES == (
             "terraform_init",
             "reconcile_imports",
@@ -39,6 +42,7 @@ class TestApplyStagesOrder:
             "reconcile_outputs",
             "k8s_apply",
             "reconcile_k8s_outputs",
+            "cert_provision",
             "ansible_run",
         )
 

@@ -98,6 +98,18 @@ class InstallerConfig:
     def validate(self) -> list[str]:
         """Validate config against schema. Returns list of error messages."""
         errors: list[str] = []
+        # PR-Z: pre-empt the generic jsonschema "not one of …" message for
+        # cert_mode=acme with a clearer hint pointing at PR-AC.
+        cm = self._data.get("cert_mode")
+        if cm == "acme":
+            errors.append(
+                "cert_mode=acme is not yet supported. The ACME / Let's "
+                "Encrypt path is tracked in PR-AC. For now use "
+                "cert_mode=self_signed (default) or cert_mode=manual."
+            )
+            # Skip schema validation since the enum check would add a noisy
+            # duplicate error.
+            return errors
         try:
             jsonschema.validate(self._data, CONFIG_SCHEMA)
         except jsonschema.ValidationError as e:
@@ -120,6 +132,8 @@ class InstallerConfig:
             "rtpengine_count": DEFAULT_RTPENGINE_COUNT,
             "installer_version": INSTALLER_VERSION,
             "init_timestamp": datetime.now(timezone.utc).isoformat(),
+            # PR-Z: default cert_mode for Kamailio TLS provisioning.
+            "cert_mode": "self_signed",
             # PR-E: cloudsql_private_ip default removed. The field is auto-populated
             # by reconcile_outputs from Terraform output `cloudsql_mysql_private_ip`.
             # If reconcile_outputs hasn't run, the field is absent and the
