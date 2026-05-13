@@ -97,6 +97,22 @@ services:
     container_name: kamailio-heplify
     restart: unless-stopped
     network_mode: host
+    # The sipcapture/heplify:1.56 image leaves ENTRYPOINT empty
+    # (verified on the dogfood VM via `docker inspect` of the image:
+    # the Config.Entrypoint field is [] and Config.Cmd is [./heplify -h]).
+    # When compose-v2 starts the container with NO entrypoint pinned,
+    # the first element of `command:` is interpreted as the executable
+    # to exec - producing
+    #   exec: "-i": executable file not found in $PATH
+    # at runtime (caught in v6 dogfood iteration #5, May 13 2026).
+    #
+    # NOTE: the production voip-kamailio-docker docker-compose.yml does
+    # NOT declare `entrypoint:` either. Production has been operating
+    # against compose-v1 semantics (which differ subtly) and is at risk
+    # of the same failure under compose-v2. A separate monorepo patch
+    # should align production. This install repo intentionally diverges
+    # by pinning entrypoint here so fresh installs on compose-v2 work.
+    entrypoint: ["./heplify"]
     command:
       - "-i"
       - "any"
