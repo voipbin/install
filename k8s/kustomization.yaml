@@ -9,3 +9,125 @@ resources:
   - voip
   - backend
   - frontend
+
+# Image rendering policy (PR-AD): self-hosted opensource operators default to
+# :latest tracking monorepo CI. To pin a SHA, change `newTag` per entry — see
+# docs/operations/image-overrides.md for the recipe and known limitations.
+images:
+  - name: agent-manager-image
+    newName: docker.io/voipbin/bin-agent-manager
+    newTag: latest
+  - name: ai-manager-image
+    newName: docker.io/voipbin/bin-ai-manager
+    newTag: latest
+  - name: api-manager-image
+    newName: docker.io/voipbin/bin-api-manager
+    newTag: latest
+  - name: billing-manager-image
+    newName: docker.io/voipbin/bin-billing-manager
+    newTag: latest
+  - name: call-manager-image
+    newName: docker.io/voipbin/bin-call-manager
+    newTag: latest
+  - name: campaign-manager-image
+    newName: docker.io/voipbin/bin-campaign-manager
+    newTag: latest
+  - name: conference-manager-image
+    newName: docker.io/voipbin/bin-conference-manager
+    newTag: latest
+  - name: contact-manager-image
+    newName: docker.io/voipbin/bin-contact-manager
+    newTag: latest
+  - name: conversation-manager-image
+    newName: docker.io/voipbin/bin-conversation-manager
+    newTag: latest
+  - name: customer-manager-image
+    newName: docker.io/voipbin/bin-customer-manager
+    newTag: latest
+  - name: direct-manager-image
+    newName: docker.io/voipbin/bin-direct-manager
+    newTag: latest
+  - name: email-manager-image
+    newName: docker.io/voipbin/bin-email-manager
+    newTag: latest
+  - name: flow-manager-image
+    newName: docker.io/voipbin/bin-flow-manager
+    newTag: latest
+  - name: hook-manager-image
+    newName: docker.io/voipbin/bin-hook-manager
+    newTag: latest
+  - name: message-manager-image
+    newName: docker.io/voipbin/bin-message-manager
+    newTag: latest
+  - name: number-manager-image
+    newName: docker.io/voipbin/bin-number-manager
+    newTag: latest
+  - name: outdial-manager-image
+    newName: docker.io/voipbin/bin-outdial-manager
+    newTag: latest
+  - name: pipecat-manager-image
+    newName: docker.io/voipbin/bin-pipecat-manager
+    newTag: latest
+  - name: queue-manager-image
+    newName: docker.io/voipbin/bin-queue-manager
+    newTag: latest
+  - name: rag-manager-image
+    newName: docker.io/voipbin/bin-rag-manager
+    newTag: latest
+  - name: registrar-manager-image
+    newName: docker.io/voipbin/bin-registrar-manager
+    newTag: latest
+  - name: route-manager-image
+    newName: docker.io/voipbin/bin-route-manager
+    newTag: latest
+  - name: sentinel-manager-image
+    newName: docker.io/voipbin/bin-sentinel-manager
+    newTag: latest
+  - name: storage-manager-image
+    newName: docker.io/voipbin/bin-storage-manager
+    newTag: latest
+  - name: tag-manager-image
+    newName: docker.io/voipbin/bin-tag-manager
+    newTag: latest
+  - name: talk-manager-image
+    newName: docker.io/voipbin/bin-talk-manager
+    newTag: latest
+  - name: timeline-manager-image
+    newName: docker.io/voipbin/bin-timeline-manager
+    newTag: latest
+  - name: transcribe-manager-image
+    newName: docker.io/voipbin/bin-transcribe-manager
+    newTag: latest
+  - name: transfer-manager-image
+    newName: docker.io/voipbin/bin-transfer-manager
+    newTag: latest
+  - name: tts-manager-image
+    newName: docker.io/voipbin/bin-tts-manager
+    newTag: latest
+  - name: webhook-manager-image
+    newName: docker.io/voipbin/bin-webhook-manager
+    newTag: latest
+  - name: bin-database-image
+    newName: docker.io/voipbin/bin-database
+    newTag: latest
+  - name: square-admin-image
+    newName: docker.io/voipbin/square-admin
+    newTag: latest
+  - name: square-meet-image
+    newName: docker.io/voipbin/square-meet
+    newTag: latest
+  - name: square-talk-image
+    newName: docker.io/voipbin/square-talk
+    newTag: latest
+  - name: voip-asterisk-call-image
+    newName: docker.io/voipbin/voip-asterisk-call
+    newTag: latest
+  - name: voip-asterisk-conference-image
+    newName: docker.io/voipbin/voip-asterisk-conference
+    newTag: latest
+  - name: voip-asterisk-proxy-image
+    newName: docker.io/voipbin/voip-asterisk-proxy
+    newTag: latest
+  - name: voip-asterisk-registrar-image
+    newName: docker.io/voipbin/voip-asterisk-registrar
+    newTag: latest

@@ -21,7 +21,8 @@ spec:
     spec:
       containers:
         - name: queue-manager
-          image: voipbin/queue-manager
+          image: queue-manager-image
+          imagePullPolicy: Always
           ports:
             - containerPort: 2112
               name: metrics

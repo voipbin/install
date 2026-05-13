@@ -21,7 +21,8 @@ spec:
     spec:
       containers:
         - name: flow-manager
-          image: voipbin/flow-manager
+          image: flow-manager-image
+          imagePullPolicy: Always
           ports:
             - containerPort: 2112
               name: metrics

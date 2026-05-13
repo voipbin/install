@@ -17,7 +17,8 @@ spec:
     spec:
       containers:
         - name: talk
-          image: voipbin/square-talk
+          image: square-talk-image
+          imagePullPolicy: Always
           ports:
             - containerPort: 80
               name: http

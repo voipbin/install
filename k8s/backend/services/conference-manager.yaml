@@ -21,7 +21,8 @@ spec:
     spec:
       containers:
         - name: conference-manager
-          image: voipbin/conference-manager
+          image: conference-manager-image
+          imagePullPolicy: Always
           ports:
             - containerPort: 2112
               name: metrics

@@ -21,7 +21,8 @@ spec:
     spec:
       containers:
         - name: hook-manager
-          image: voipbin/hook-manager
+          image: hook-manager-image
+          imagePullPolicy: Always
           ports:
             - containerPort: 2112
               name: metrics

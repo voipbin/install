@@ -21,7 +21,8 @@ spec:
     spec:
       containers:
         - name: tts-manager
-          image: voipbin/tts-manager
+          image: tts-manager-image
+          imagePullPolicy: Always
           ports:
             - containerPort: 2112
               name: metrics

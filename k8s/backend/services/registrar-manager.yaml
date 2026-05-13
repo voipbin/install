@@ -21,7 +21,8 @@ spec:
     spec:
       containers:
         - name: registrar-manager
-          image: voipbin/registrar-manager
+          image: registrar-manager-image
+          imagePullPolicy: Always
           ports:
             - containerPort: 2112
               name: metrics

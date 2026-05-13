@@ -21,7 +21,8 @@ spec:
     spec:
       containers:
         - name: sentinel-manager
-          image: voipbin/sentinel-manager
+          image: sentinel-manager-image
+          imagePullPolicy: Always
           ports:
             - containerPort: 2112
               name: metrics

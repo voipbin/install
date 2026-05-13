@@ -21,7 +21,8 @@ spec:
     spec:
       containers:
         - name: transfer-manager
-          image: voipbin/transfer-manager
+          image: transfer-manager-image
+          imagePullPolicy: Always
           ports:
             - containerPort: 2112
               name: metrics

@@ -21,7 +21,8 @@ spec:
     spec:
       containers:
         - name: route-manager
-          image: voipbin/route-manager
+          image: route-manager-image
+          imagePullPolicy: Always
           ports:
             - containerPort: 2112
               name: metrics

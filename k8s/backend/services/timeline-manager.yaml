@@ -21,7 +21,8 @@ spec:
     spec:
       containers:
         - name: timeline-manager
-          image: voipbin/timeline-manager
+          image: timeline-manager-image
+          imagePullPolicy: Always
           ports:
             - containerPort: 2112
               name: metrics
