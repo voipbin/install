@@ -391,11 +391,27 @@ def run_pipeline(
     # PR-R: rehydrate persisted k8s LB IPs from prior reconcile_k8s_outputs
     # runs so subsequent --stage ansible_run invocations see them even when
     # k8s_apply itself isn't being re-run in this CLI call.
+    #
+    # PR-Y (v6 iteration #6 fix): use truthy-override semantics rather than
+    # setdefault. terraform_output() returns the static `output "X" { value
+    # = google_compute_address.X.address }` declaration BEFORE the LB IP is
+    # actually harvested, so `redis_lb_ip` and `rabbitmq_lb_ip` come back
+    # as the EMPTY STRING "" — a key that exists but holds no value. The
+    # previous `tf_outputs.setdefault(k, v)` honored the empty-string
+    # placeholder and silently dropped the persisted real value (e.g.
+    # "10.0.0.8"). That left ansible's flat-var wiring with empty REDIS /
+    # RABBITMQ host slots and Kamailio CrashLoop'd on missing
+    # REDIS_CACHE_ADDRESS at every dogfood re-apply.
+    #
+    # Contract: persisted state is the authoritative SOURCE OF TRUTH for
+    # any LB IP it carries; terraform's placeholder value only wins when
+    # state has nothing to say. Iff persisted v is truthy (non-empty,
+    # non-None), OVERWRITE.
     persisted_k8s = state.get("k8s_outputs") or {}
     if isinstance(persisted_k8s, dict):
         for k, v in persisted_k8s.items():
-            if isinstance(k, str) and isinstance(v, str):
-                tf_outputs.setdefault(k, v)
+            if isinstance(k, str) and isinstance(v, str) and v:
+                tf_outputs[k] = v
 
     for stage_name in to_run:
         label = STAGE_LABELS.get(stage_name, stage_name)
