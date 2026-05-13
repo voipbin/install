@@ -491,9 +491,29 @@ def _persist_secrets_after_reissue(
             "config/.sops.yaml. Run `voipbin-install init` first."
         )
         return False
-    # Write to temp file, then atomically replace the encrypted file.
+    # PR-AA: sweep any orphan plaintext tempfiles left behind by PR-Z's
+    # broken naming pattern (`secrets.XXXXXX.plain`) AND any cert-staging
+    # tempfiles left by a prior PR-AA invocation that aborted between
+    # mkstemp and the `finally` cleanup (e.g. SIGKILL during the encrypt
+    # window). These would contain decrypted secrets in cleartext.
+    # Discovered in dogfood iter#8 (2026-05-13). Sweep is safe at function
+    # entry because the pipeline is single-flighted — see PR-AA design
+    # §Concurrency.
+    for orphan in list(config._dir.glob("secrets.*.plain")) + list(
+        config._dir.glob("cert-staging-*.secrets.yaml")
+    ):
+        try:
+            orphan.unlink()
+            print_step(f"cert_provision: swept orphan plaintext tempfile {orphan.name}")
+        except OSError:
+            pass
+    # PR-AA: tempfile MUST end in `secrets.yaml` so .sops.yaml's
+    # `path_regex: secrets\.yaml$` rule matches. sops 3.12.x resolves rules
+    # from the working dir BEFORE honoring --gcp-kms / --age, so a non-
+    # matching name fails with `no matching creation rules found`.
+    # Discovered in dogfood iter#8 (2026-05-13).
     fd, tmp_str = tempfile.mkstemp(
-        prefix="secrets.", suffix=".plain", dir=str(config._dir),
+        prefix="cert-staging-", suffix=".secrets.yaml", dir=str(config._dir),
     )
     os.close(fd)
     tmp_path = Path(tmp_str)
