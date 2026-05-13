@@ -187,6 +187,30 @@ class TestPipelineRehydrationBehavior:
         assert out["redis_lb_ip"] == ""
         assert "rabbitmq_lb_ip" not in out
 
+    def test_both_terraform_and_state_missing_key(self):
+        """iter-2 F2: if neither terraform_output nor state.yaml has the
+        key, the result must not synthesize one. Downstream consumers
+        (ansible_runner.py:158 `terraform_outputs.get(key, '') or ''`)
+        rely on missing-key → empty-string fallback."""
+        tf: dict[str, str] = {}
+        k8s: dict[str, str] = {}
+        out = self._rehydrate(tf, k8s)
+        assert out == {}, (
+            f"both-missing case must not synthesize a key; got {out!r}"
+        )
+
+    def test_state_overrides_with_distinct_value(self):
+        """state.yaml is the authoritative source even when terraform
+        reports a DIFFERENT non-empty value. Documents the intentional
+        contract called out in iter-1 review F2."""
+        tf = {"redis_lb_ip": "10.0.0.99"}  # disagreement
+        k8s = {"redis_lb_ip": "10.0.0.8"}
+        out = self._rehydrate(tf, k8s)
+        assert out["redis_lb_ip"] == "10.0.0.8", (
+            "state.yaml is authoritative when persisted value is truthy; "
+            f"got {out['redis_lb_ip']!r}, expected 10.0.0.8."
+        )
+
     def test_non_dict_persisted_state_is_tolerated(self):
         """A YAML state file corrupted to a list/string under k8s_outputs
         must not crash the rehydration loop."""
@@ -282,3 +306,61 @@ class TestRunPipelineIntegration:
         )
         # Keys not in k8s_outputs must remain untouched.
         assert rehydrated.get("kamailio_internal_lb_ip") == "10.0.0.2"
+
+    def test_empty_persisted_does_not_overwrite_real_terraform_value_integration(self, monkeypatch):
+        """iter-2 F3: integration coverage for the inverse scenario.
+        state.yaml has an empty string for a key and terraform_output
+        has a real value. The truthy guard MUST prevent the empty
+        persisted value from clobbering the real terraform value."""
+        from scripts import pipeline
+
+        fake_state = {
+            "deployment_state": "applying",
+            "stages": {
+                "terraform_init": "complete",
+                "reconcile_imports": "complete",
+                "terraform_apply": "complete",
+                "reconcile_outputs": "complete",
+                "k8s_apply": "complete",
+                "reconcile_k8s_outputs": "complete",
+                "ansible_run": "pending",
+            },
+            "k8s_outputs": {
+                "redis_lb_ip": "",  # stale / empty persisted
+                "rabbitmq_lb_ip": "10.0.0.15",  # normal real persisted
+            },
+        }
+        fake_tf_outputs = {
+            "redis_lb_ip": "192.168.99.99",  # terraform somehow has real value
+            "rabbitmq_lb_ip": "",  # terraform empty (the v6 #6 condition)
+        }
+        captured = {}
+
+        def fake_ansible_runner(config, tf_outputs, dry_run, auto_approve):
+            captured["tf_outputs"] = dict(tf_outputs)
+            return True
+
+        monkeypatch.setattr(pipeline, "load_state", lambda: fake_state)
+        monkeypatch.setattr(pipeline, "save_state", lambda s: None)
+        monkeypatch.setattr(pipeline, "terraform_output", lambda c: dict(fake_tf_outputs))
+        original_runners = pipeline.STAGE_RUNNERS.copy()
+        pipeline.STAGE_RUNNERS["ansible_run"] = fake_ansible_runner
+        try:
+            cfg = MagicMock()
+            cfg.get = MagicMock(return_value="test")
+            pipeline.run_pipeline(
+                cfg, only_stage="ansible_run", dry_run=False, auto_approve=True,
+            )
+        finally:
+            pipeline.STAGE_RUNNERS.clear()
+            pipeline.STAGE_RUNNERS.update(original_runners)
+
+        assert "tf_outputs" in captured
+        rehydrated = captured["tf_outputs"]
+        # Empty persisted must NOT clobber real terraform value.
+        assert rehydrated.get("redis_lb_ip") == "192.168.99.99", (
+            "empty persisted value clobbered terraform's real value; "
+            f"got {rehydrated.get('redis_lb_ip')!r}"
+        )
+        # Real persisted must overwrite terraform's empty placeholder.
+        assert rehydrated.get("rabbitmq_lb_ip") == "10.0.0.15"
