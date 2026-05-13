@@ -38,11 +38,14 @@
     path: "{{ cert_staging_dir }}"
   register: _cert_staging_stat
   delegate_to: localhost
+  become: false
 
 - name: Fail if cert staging missing
   fail:
     msg: "cert_staging_dir {{ cert_staging_dir }} does not exist. The cert_provision pipeline stage must run before ansible_run."
   when: not _cert_staging_stat.stat.exists or not _cert_staging_stat.stat.isdir
+  delegate_to: localhost
+  become: false
 
 - name: Sync cert-staging to VM
   ansible.posix.synchronize:
@@ -52,6 +55,8 @@
     recursive: true
     rsync_opts:
       - "--chmod=D700,F600"
+  delegate_to: localhost
+  become: false
   notify: Recreate kamailio containers
 
 - name: Ensure fullchain.pem world-readable inside container
