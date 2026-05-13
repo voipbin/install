@@ -196,24 +196,22 @@ def _build_substitution_map(
         "PLACEHOLDER_DSN_PASSWORD_POSTGRES_BIN_MANAGER": terraform_outputs.get(
             "cloudsql_postgres_password_bin_manager", ""
         ),
-        # PR-U-1: HOMER (heplify-server + homer-webapp) database credentials.
-        # Reuse the existing CloudSQL Postgres instance and the `voipbin`
-        # user (locked decision 2026-05-13). PR-U-2 will add the actual
-        # homer_data/homer_config databases on that instance; until then
-        # heplify-server will fail Postgres auth and CrashLoop (intentional
-        # mid-state, see PR-U-1 design §8). The fall-back chain is:
-        #   secrets.yaml.homer_db_password (operator override)
-        #     -> secrets.yaml.cloudsql_voipbin_password (PR-D1 shared)
-        #       -> ""  (empty, heplify fails fast)
-        "PLACEHOLDER_HOMER_DB_USER": (
-            config.get("homer_db_user", "")
-            or config.get("cloudsql_voipbin_user", "")
-            or "voipbin"
-        ),
-        "PLACEHOLDER_HOMER_DB_PASS": (
-            secrets.get("homer_db_password", "")
-            or secrets.get("cloudsql_voipbin_password", "")
-            or ""
+        # PR-U-2: HOMER (heplify-server + homer-app) database credentials.
+        # heplify-server writes capture rows to `homer_data`; homer-app reads
+        # dashboards/config from `homer_config`. Both DBs live on the existing
+        # CloudSQL Postgres instance (terraform/cloudsql.tf:145), owned by a
+        # dedicated `homer` Postgres user provisioned by Terraform. The user
+        # name is the literal string "homer" (PR-U-2 locked decision); the
+        # password is the Terraform output `cloudsql_postgres_password_homer`,
+        # harvested into terraform_outputs by reconcile_outputs.
+        #
+        # Preflight (scripts/preflight.py:check_homer_credentials_present)
+        # asserts the password is non-empty when k8s/infrastructure/homer/
+        # exists, so an empty value here cannot silently CrashLoop a freshly-
+        # applied Pod.
+        "PLACEHOLDER_HOMER_DB_USER": "homer",
+        "PLACEHOLDER_HOMER_DB_PASS": terraform_outputs.get(
+            "cloudsql_postgres_password_homer", ""
         ),
         # Terraform outputs.
         # RabbitMQ broker bootstrap credentials. Default user/pass is
@@ -350,6 +348,8 @@ def k8s_apply(
     ``kubectl apply`` — no post-apply patching or rollout restarts.
     """
     from scripts.preflight import (
+        PreflightError,
+        check_homer_credentials_present,
         check_loadbalancer_addresses,
         check_nodeport_availability,
     )
@@ -371,6 +371,14 @@ def k8s_apply(
                 "the static IP resources are created before re-running."
             )
             return False
+
+    # PR-U-2: HOMER Postgres credentials preflight (hard fail).
+    # No-op when k8s/infrastructure/homer/ is absent (custom install profiles).
+    try:
+        check_homer_credentials_present(terraform_outputs)
+    except PreflightError as exc:
+        print_error(str(exc))
+        return False
 
     print_step("Rendering manifests with secrets and config values...")
     ok, rendered, _unresolved = _render_manifests(config, terraform_outputs)

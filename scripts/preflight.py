@@ -402,6 +402,38 @@ def check_loadbalancer_addresses(terraform_outputs: dict[str, str]) -> list[str]
     return [k for k in required if not (terraform_outputs.get(k) or "").strip()]
 
 
+# PR-U-2: K8S_DIR semantics MUST match the K8S_DIR constant in scripts/k8s.py:16.
+# Using a local Path computation here keeps preflight.py independent of k8s.py
+# (preventing a cyclic import — k8s.py already imports preflight for the
+# LoadBalancer check at k8s.py:k8s_apply).
+_K8S_DIR = Path(__file__).resolve().parent.parent / "k8s"
+
+
+def check_homer_credentials_present(terraform_outputs: dict[str, str]) -> None:
+    """PR-U-2: assert HOMER Postgres password is harvested before k8s_apply.
+
+    The HOMER manifest set under k8s/infrastructure/homer/ embeds the password
+    via PLACEHOLDER_HOMER_DB_PASS substitution. An empty password renders as
+    an empty DSN, heplify-server crashes on Postgres connect, and the Pod
+    enters CrashLoopBackOff. This check makes the failure explicit at preflight
+    instead of silent at apply.
+
+    No-op when k8s/infrastructure/homer/ is absent (custom install profiles
+    may exclude HOMER).
+    """
+    homer_dir = _K8S_DIR / "infrastructure" / "homer"
+    if not homer_dir.exists():
+        return
+    pw = terraform_outputs.get("cloudsql_postgres_password_homer", "")
+    if not pw:
+        raise PreflightError(
+            "HOMER Postgres password is empty in terraform_outputs. "
+            "Run `voipbin-install apply --stage reconcile_outputs` to harvest "
+            "it from Terraform, or confirm `terraform apply` succeeded for "
+            "google_sql_user.voipbin_postgres_homer."
+        )
+
+
 def run_preflight_display(results: list[PreflightResult]) -> bool:
     """Display preflight results. Returns True if all passed."""
     print_header("Checking prerequisites...")
