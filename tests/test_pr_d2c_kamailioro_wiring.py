@@ -23,9 +23,11 @@ from scripts.ansible_runner import (
 # Fixture password (24 chars, locked alphabet, includes + ! * . - _).
 # Matches PR-D2a random_password.mysql_kamailioro length=24.
 FIXTURE_PW = "Sample-pw_1.2*3!a+x9.AaZ"
-FIXTURE_ENCODED = "Sample-pw_1.2*3!a%2Bx9.AaZ"
+# PR-AC-1 (2026-05-13): we no longer percent-encode the password; emit raw.
+# Kept as a NEGATIVE control — the URL must NOT contain this percent form.
+FIXTURE_ENCODED_LEGACY = "Sample-pw_1.2*3!a%2Bx9.AaZ"
 FIXTURE_HOST = "10.99.0.3"
-EXPECTED_URL = f"mysql://kamailioro:{FIXTURE_ENCODED}@{FIXTURE_HOST}:3306/asterisk"
+EXPECTED_URL = f"mysql://kamailioro:{FIXTURE_PW}@{FIXTURE_HOST}:3306/asterisk"
 
 
 def _make_config(data: dict) -> MagicMock:
@@ -57,11 +59,17 @@ class TestBuildKamailioAuthDbUrlHappyPath:
         username = userinfo.split(":", 1)[0]
         assert username == "kamailioro", url
 
-    def test_encoded_password_equals_expected(self):
+    def test_password_emitted_raw_not_percent_encoded(self):
         url = self._build()
         userinfo = url[len("mysql://") : url.index("@")]
-        encoded_password = userinfo.split(":", 1)[1]
-        assert encoded_password == FIXTURE_ENCODED, url
+        password = userinfo.split(":", 1)[1]
+        assert password == FIXTURE_PW, url
+        # PR-AC-1: NEGATIVE control. The URL must NOT contain percent-
+        # encoded form because Kamailio's db_mysql does not decode.
+        assert FIXTURE_ENCODED_LEGACY not in url, (
+            f"URL contains percent-encoded password (would cause Access "
+            f"denied at MySQL auth, dogfood iter#11 lesson): {url}"
+        )
 
     def test_host_appears_verbatim(self):
         url = self._build()
