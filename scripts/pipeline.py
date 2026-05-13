@@ -492,11 +492,16 @@ def _persist_secrets_after_reissue(
         )
         return False
     # PR-AA: sweep any orphan plaintext tempfiles left behind by PR-Z's
-    # broken naming pattern (`secrets.XXXXXX.plain`). These would contain
-    # decrypted secrets in cleartext. Discovered in dogfood iter#8
-    # (2026-05-13) — the iter#8 failure aborted before the cleanup
-    # `finally` block could run, leaving plaintext on disk.
-    for orphan in config._dir.glob("secrets.*.plain"):
+    # broken naming pattern (`secrets.XXXXXX.plain`) AND any cert-staging
+    # tempfiles left by a prior PR-AA invocation that aborted between
+    # mkstemp and the `finally` cleanup (e.g. SIGKILL during the encrypt
+    # window). These would contain decrypted secrets in cleartext.
+    # Discovered in dogfood iter#8 (2026-05-13). Sweep is safe at function
+    # entry because the pipeline is single-flighted — see PR-AA design
+    # §Concurrency.
+    for orphan in list(config._dir.glob("secrets.*.plain")) + list(
+        config._dir.glob("cert-staging-*.secrets.yaml")
+    ):
         try:
             orphan.unlink()
             print_step(f"cert_provision: swept orphan plaintext tempfile {orphan.name}")

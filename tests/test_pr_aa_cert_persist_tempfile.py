@@ -135,21 +135,32 @@ class TestOrphanPlaintextSweep:
     plaintext orphans on disk when the pipeline aborted mid-encrypt (which
     is exactly what happened in iter#8). The PR-AA sweep must remove them
     on entry, BEFORE the new encrypt attempt, so plaintext cannot linger
-    across operator runs."""
+    across operator runs. PR-AA's own `cert-staging-*.secrets.yaml` pattern
+    is also covered by the sweep so the symmetric leak (SIGKILL during the
+    encrypt window of a PR-AA invocation) is closed."""
 
     def test_orphan_secrets_plaintext_swept_on_entry(self, tmp_path, monkeypatch):
         cfg = _make_cfg(tmp_path)
-        # Simulate iter#8 leftovers.
-        orphan_a = tmp_path / "secrets.abc123.plain"
-        orphan_b = tmp_path / "secrets.def456.plain"
-        orphan_a.write_text("PLAINTEXT_SECRET_A\n")
-        orphan_b.write_text("PLAINTEXT_SECRET_B\n")
-        # Capture whether orphans existed at the moment encrypt was called.
-        observed: dict[str, list[str]] = {"during_encrypt": []}
+        # Simulate iter#8 leftovers AND prior-PR-AA-invocation leftovers.
+        orphan_pr_z_a = tmp_path / "secrets.abc123.plain"
+        orphan_pr_z_b = tmp_path / "secrets.def456.plain"
+        orphan_pr_aa = tmp_path / "cert-staging-xyz789.secrets.yaml"
+        orphan_pr_z_a.write_text("PLAINTEXT_SECRET_A\n")
+        orphan_pr_z_b.write_text("PLAINTEXT_SECRET_B\n")
+        orphan_pr_aa.write_text("PLAINTEXT_FROM_PRIOR_PR_AA_RUN\n")
+        # Pre-create an UNRELATED file that must NOT be swept (E4 guard).
+        unrelated = tmp_path / "operator-notes.plain"
+        unrelated.write_text("operator's own notes; sweep must NOT touch\n")
+        # Capture orphan state at the moment encrypt runs.
+        observed: dict[str, list[str]] = {"orphans_during_encrypt": []}
 
         def _stub_encrypt(path, kms_key_id):
-            observed["during_encrypt"] = sorted(
+            observed["orphans_during_encrypt"] = sorted(
                 p.name for p in tmp_path.glob("secrets.*.plain")
+            ) + sorted(
+                # Exclude the in-flight tempfile (the path being encrypted).
+                p.name for p in tmp_path.glob("cert-staging-*.secrets.yaml")
+                if p != Path(path)
             )
             return True
 
@@ -157,14 +168,118 @@ class TestOrphanPlaintextSweep:
 
         ok = pl._persist_secrets_after_reissue(cfg, {"k": "v"})
         assert ok is True
-        # The sweep must have run BEFORE encrypt, so orphans were already gone.
-        assert observed["during_encrypt"] == [], (
+        # The sweep ran BEFORE encrypt; all three orphans were already gone.
+        assert observed["orphans_during_encrypt"] == [], (
             f"orphan plaintext files survived into encrypt phase: "
-            f"{observed['during_encrypt']}"
+            f"{observed['orphans_during_encrypt']}"
         )
-        # And of course they must not exist after the call either.
-        assert not orphan_a.exists()
-        assert not orphan_b.exists()
+        # Orphans deleted.
+        assert not orphan_pr_z_a.exists()
+        assert not orphan_pr_z_b.exists()
+        assert not orphan_pr_aa.exists()
+        # E4 guard: unrelated `.plain` file MUST survive — sweep must not
+        # broaden to `*.plain` or it would delete operator-owned files.
+        assert unrelated.exists(), (
+            "sweep glob over-matched and deleted operator-owned `*.plain` "
+            "files (E4 mutant survived). Restrict glob to `secrets.*.plain` "
+            "and `cert-staging-*.secrets.yaml`."
+        )
+
+
+class TestPersistDestinationContract:
+    """E1/E2: pin the destination contract.
+
+    E1: if `os.replace` is removed/swapped for a no-op, the canonical
+    `secrets.yaml` would never be updated and downstream stages would
+    consume the stale prior-encrypted blob. PR body's mock tests miss this.
+
+    E2: if `write_secrets_yaml` is misdirected to write directly to
+    `config.secrets_path` (the canonical encrypted file), it would clobber
+    encrypted data with plaintext — a catastrophic leak. Pin that the
+    canonical path's bytes change ONLY via the encrypted-tempfile-replace
+    path, never as a plaintext write."""
+
+    def test_secrets_yaml_destination_bytes_change_via_replace(
+        self, tmp_path, monkeypatch
+    ):
+        cfg = _make_cfg(tmp_path)
+        # Simulate sops by writing a deterministic ENCRYPTED-shaped marker
+        # to the tempfile that we can recognise on the canonical path.
+        ENCRYPTED_MARKER = "SOPS_ENCRYPTED_BLOB_MARKER\n"
+        captured_paths: dict[str, Path] = {}
+
+        def _stub_encrypt(path, kms_key_id):
+            captured_paths["encrypt_arg"] = Path(path)
+            # Overwrite the tempfile with the encrypted marker, simulating
+            # sops' --in-place behavior.
+            Path(path).write_text(ENCRYPTED_MARKER)
+            return True
+
+        monkeypatch.setattr(secretmgr, "encrypt_with_sops", _stub_encrypt)
+        ok = pl._persist_secrets_after_reissue(cfg, {"k": "v"})
+        assert ok is True
+        # Canonical secrets.yaml MUST now contain the encrypted marker, NOT
+        # the original placeholder. Proves os.replace ran with the correct
+        # source/dest. Catches E1 (os.replace removed).
+        canonical = (tmp_path / "secrets.yaml").read_text()
+        assert canonical == ENCRYPTED_MARKER, (
+            f"secrets.yaml not updated via os.replace; contents: {canonical!r}"
+        )
+
+    def test_plaintext_never_written_to_canonical_secrets_path(
+        self, tmp_path, monkeypatch
+    ):
+        cfg = _make_cfg(tmp_path)
+        # Capture every call write_secrets_yaml receives — its destination
+        # path MUST be the tempfile, never the canonical secrets.yaml.
+        write_targets: list[Path] = []
+        real_write = secretmgr.write_secrets_yaml
+
+        def _spy_write(secrets_dict, path):
+            write_targets.append(Path(path))
+            real_write(secrets_dict, path)
+
+        monkeypatch.setattr(secretmgr, "write_secrets_yaml", _spy_write)
+        monkeypatch.setattr(secretmgr, "encrypt_with_sops", lambda p, k: True)
+        ok = pl._persist_secrets_after_reissue(cfg, {"k": "v"})
+        assert ok is True
+        canonical = cfg.secrets_path.resolve()
+        for target in write_targets:
+            assert target.resolve() != canonical, (
+                f"write_secrets_yaml wrote PLAINTEXT directly to canonical "
+                f"secrets.yaml at {canonical} — catastrophic leak (E2 mutant). "
+                f"Plaintext writes must go to a tempfile that sops then "
+                f"encrypts in-place before os.replace promotes it."
+            )
+
+
+class TestKmsKeyIdPropagation:
+    """E3: pin that the kms_key_id read from `.sops.yaml` is the SAME value
+    passed to `encrypt_with_sops`. A mutation that hardcodes a wrong key
+    would re-encrypt with the wrong recipient and lock the operator out
+    on next decrypt. The mock test was previously blind to this because
+    it ignored the kms_key_id arg."""
+
+    def test_kms_key_id_from_sops_yaml_propagates_to_encrypt(
+        self, tmp_path, monkeypatch
+    ):
+        cfg = _make_cfg(tmp_path)
+        captured: dict[str, str] = {}
+
+        def _stub_encrypt(path, kms_key_id):
+            captured["kms_key_id"] = kms_key_id
+            return True
+
+        monkeypatch.setattr(secretmgr, "encrypt_with_sops", _stub_encrypt)
+        ok = pl._persist_secrets_after_reissue(cfg, {"k": "v"})
+        assert ok is True
+        # The key passed to sops MUST equal the one declared in .sops.yaml.
+        assert captured.get("kms_key_id") == KMS, (
+            f"kms_key_id mis-propagation: .sops.yaml has {KMS!r} but "
+            f"encrypt_with_sops received {captured.get('kms_key_id')!r}. "
+            f"A wrong key would lock operators out of their encrypted "
+            f"secrets on next decrypt (E3 mutant)."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +288,37 @@ class TestOrphanPlaintextSweep:
 
 _SOPS = shutil.which("sops")
 _AGE_KEYGEN = shutil.which("age-keygen")
+
+
+def _generate_age_keypair(tmp_path: Path) -> tuple[Path, str]:
+    """Generate an age keypair, return (keyfile_path, recipient_string).
+
+    age-keygen writes the FULL keypair (including a `# public key:` comment
+    line) to the OUTPUT FILE, and prints `Public key: <recipient>` to STDERR
+    (capital P, no `#`). Earlier PR-AA versions parsed stderr looking for
+    `# public key:` which is the keyfile syntax — that never appears in
+    stderr and broke the test on every age version. Parse the keyfile
+    instead; it is the most stable surface across age releases.
+    """
+    keyfile = tmp_path / "age.key"
+    rc = subprocess.run(
+        [_AGE_KEYGEN, "-o", str(keyfile)],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert rc.returncode == 0, f"age-keygen failed: {rc.stderr}"
+    recipient = None
+    for line in keyfile.read_text().splitlines():
+        line = line.strip()
+        if line.lower().startswith("# public key:"):
+            recipient = line.split(":", 1)[1].strip()
+            break
+    assert recipient, (
+        f"could not extract age recipient from keyfile contents:\n"
+        f"{keyfile.read_text()!r}\nstderr={rc.stderr!r}"
+    )
+    return keyfile, recipient
 
 
 @pytest.mark.skipif(
@@ -190,26 +336,10 @@ class TestRealSopsAgeRoundTrip:
     PR-Z had included it."""
 
     def test_real_sops_accepts_tempfile_named_per_pr_aa(self, tmp_path):
-        # 1. Generate an age recipient.
-        keyfile = tmp_path / "age.key"
-        rc = subprocess.run(
-            [_AGE_KEYGEN, "-o", str(keyfile)],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        assert rc.returncode == 0, f"age-keygen failed: {rc.stderr}"
-        # age-keygen prints the public recipient on the second line of stderr.
-        recipient = None
-        for line in (rc.stderr + rc.stdout).splitlines():
-            line = line.strip()
-            if line.startswith("# public key:"):
-                recipient = line.split(":", 1)[1].strip()
-                break
-        assert recipient, f"could not extract age recipient from output:\n{rc.stderr}\n{rc.stdout}"
+        keyfile, recipient = _generate_age_keypair(tmp_path)
 
-        # 2. Write a .sops.yaml with the SAME path_regex shape that
-        #    write_sops_config produces in production.
+        # Write a .sops.yaml with the SAME path_regex shape that
+        # write_sops_config produces in production.
         sops_yaml = tmp_path / ".sops.yaml"
         sops_yaml.write_text(yaml.safe_dump({
             "creation_rules": [
@@ -217,7 +347,7 @@ class TestRealSopsAgeRoundTrip:
             ]
         }))
 
-        # 3. Use the EXACT same tempfile pattern PR-AA uses in production.
+        # Use the EXACT same tempfile pattern PR-AA uses in production.
         import tempfile
         fd, tmp_str = tempfile.mkstemp(
             prefix="cert-staging-", suffix=".secrets.yaml", dir=str(tmp_path),
@@ -226,8 +356,6 @@ class TestRealSopsAgeRoundTrip:
         plaintext_path = Path(tmp_str)
         plaintext_path.write_text("foo: bar\nbaz: qux\n")
 
-        # 4. Run real sops --encrypt --in-place from the workdir so
-        #    .sops.yaml is discovered.
         env = os.environ.copy()
         env["SOPS_AGE_KEY_FILE"] = str(keyfile)
         rc = subprocess.run(
@@ -243,7 +371,7 @@ class TestRealSopsAgeRoundTrip:
             f"{rc.stderr}"
         )
 
-        # 5. Round-trip via decrypt to confirm payload integrity.
+        # Round-trip via decrypt to confirm payload integrity.
         rc = subprocess.run(
             [_SOPS, "--decrypt", str(plaintext_path)],
             cwd=str(tmp_path),
@@ -259,24 +387,8 @@ class TestRealSopsAgeRoundTrip:
     def test_real_sops_rejects_pr_z_broken_tempfile_name(self, tmp_path):
         """Negative control: confirm the original PR-Z naming pattern
         REPRODUCES the iter#8 failure on the same machine that runs the
-        positive test. Without this, the positive test is unfalsifiable
-        (we can't tell whether sops accepts everything or whether the new
-        name actually matters)."""
-        keyfile = tmp_path / "age.key"
-        rc = subprocess.run(
-            [_AGE_KEYGEN, "-o", str(keyfile)],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        assert rc.returncode == 0
-        recipient = None
-        for line in (rc.stderr + rc.stdout).splitlines():
-            line = line.strip()
-            if line.startswith("# public key:"):
-                recipient = line.split(":", 1)[1].strip()
-                break
-        assert recipient
+        positive test."""
+        keyfile, recipient = _generate_age_keypair(tmp_path)
 
         sops_yaml = tmp_path / ".sops.yaml"
         sops_yaml.write_text(yaml.safe_dump({
