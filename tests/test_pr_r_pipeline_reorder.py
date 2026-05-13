@@ -162,20 +162,25 @@ class TestHarvestLoadbalancerIps:
             for (ns, svc, _key) in _LB_SERVICES
             if any(f"{ns}/{svc}" in msg for msg in warned_services)
         }
+        # PR-U-1 added heplify-udp to _LB_SERVICES, so this missing-subset
+        # case warns for 4 services (rabbitmq, heplify-udp, asterisk-registrar-udp,
+        # asterisk-conference-udp) instead of the original 3.
         assert warned_set == {
             ("infrastructure", "rabbitmq"),
+            ("infrastructure", "heplify-udp"),
             ("voip", "asterisk-registrar-udp"),
             ("voip", "asterisk-conference-udp"),
         }
 
-    def test_timeout_with_nothing_returns_empty_dict_and_5_warnings(self):
+    def test_timeout_with_nothing_returns_empty_dict_and_6_warnings(self):
         with patch("scripts.k8s._get_service_external_ip", return_value=""):
             with patch("scripts.k8s.time.sleep"), patch(
                 "scripts.k8s.print_warning"
             ) as warn:
                 out = harvest_loadbalancer_ips(timeout_seconds=1, poll_interval=0)
         assert out == {}
-        assert warn.call_count == 5
+        # PR-U-1 expanded _LB_SERVICES from 5 to 6 by adding heplify-udp.
+        assert warn.call_count == 6
 
     def test_result_keys_are_exactly_canonical_lb_ip_set(self):
         canonical = {key for (_ns, _svc, key) in _LB_SERVICES}

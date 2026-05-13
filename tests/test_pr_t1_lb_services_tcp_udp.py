@@ -61,19 +61,35 @@ class TestAsteriskServicesUseUdpSuffix:
             "Use asterisk-conference-udp."
         )
 
+    def test_heplify_uses_udp_suffix(self):
+        """PR-U-1 added heplify-udp Service to capture Kamailio HEP traffic.
+        Must use the -udp suffix because heplify-server's HEP capture
+        listens on UDP/9060; the heplify-tcp Service is for the homer-webapp
+        UI and config/TLS ports, not for SIP capture."""
+        services = {svc for (_ns, svc, _key) in _LB_SERVICES}
+        assert "heplify-udp" in services, (
+            "heplify-udp missing from _LB_SERVICES. PR-U-1 regression."
+        )
+        assert "heplify" not in services, (
+            "heplify (no suffix) present in _LB_SERVICES. "
+            "Use heplify-udp."
+        )
+
 
 class TestServiceCountAndNamespaceUnchanged:
-    """PR-T1 must not change the 5-Service contract or namespaces."""
+    """PR-T1 originally pinned 5-Service contract; PR-U-1 expanded to 6
+    by adding heplify-udp in the infrastructure namespace."""
 
-    def test_five_services(self):
-        assert len(_LB_SERVICES) == 5
+    def test_six_services(self):
+        assert len(_LB_SERVICES) == 6
 
     def test_namespaces_unchanged(self):
-        # PR-R contract: 2 in infrastructure, 3 in voip
+        # PR-U-1 contract: 3 in infrastructure (redis, rabbitmq, heplify-udp),
+        # 3 in voip (asterisk-call-udp, -registrar-udp, -conference-udp).
         ns_counts: dict[str, int] = {}
         for (ns, _svc, _key) in _LB_SERVICES:
             ns_counts[ns] = ns_counts.get(ns, 0) + 1
-        assert ns_counts == {"infrastructure": 2, "voip": 3}
+        assert ns_counts == {"infrastructure": 3, "voip": 3}
 
     def test_output_keys_unchanged(self):
         # PR-T flat-vars in ansible_runner.py depend on these output keys.
@@ -82,6 +98,7 @@ class TestServiceCountAndNamespaceUnchanged:
         assert keys == {
             "redis_lb_ip",
             "rabbitmq_lb_ip",
+            "heplify_lb_ip",
             "asterisk_call_lb_ip",
             "asterisk_registrar_lb_ip",
             "asterisk_conference_lb_ip",
