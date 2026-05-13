@@ -55,6 +55,8 @@
     recursive: true
     rsync_opts:
       - "--chmod=D700,F600"
+  delegate_to: localhost
+  become: false
   notify: Recreate kamailio containers
 
 - name: Ensure fullchain.pem world-readable inside container

@@ -62,29 +62,53 @@ def _collect_tasks(yaml_doc) -> list[dict]:
 
 
 def _ansible_yaml_files() -> list[Path]:
-    """Return every *.yml/*.yaml file under ansible/roles/ + ansible/playbooks/."""
+    """Return every *.yml/*.yaml file under ansible/ excluding vars/templates.
+
+    Walks the whole ansible/ tree (not just roles+playbooks) so a future
+    contributor adding `ansible/tasks/`, `ansible/bootstrap/`, etc. cannot
+    bypass the regression guard. Skips templates/files/group_vars/host_vars
+    where YAML may contain ansible-specific !vault tags or jinja templates
+    that yaml.safe_load cannot parse.
+    """
     paths: list[Path] = []
-    for sub in ("roles", "playbooks"):
-        base = ANSIBLE_DIR / sub
-        if not base.exists():
-            continue
-        for ext in ("*.yml", "*.yaml"):
-            paths.extend(base.rglob(ext))
+    base = ANSIBLE_DIR
+    if not base.exists():
+        return paths
+    skip_segments = {"templates", "files", "group_vars", "host_vars"}
+    for ext in ("*.yml", "*.yaml"):
+        for path in base.rglob(ext):
+            if any(seg in skip_segments for seg in path.parts):
+                continue
+            paths.append(path)
     return sorted(paths)
 
 
 def _is_falsy_become(value) -> bool:
-    """Return True iff value is explicitly false/no/0/'false'/'no'/'False'.
+    """Return True iff value is explicitly false/no/0/'false'/'no'/'False'/'n'/'f'.
 
-    Ansible accepts `become: false` and `become: no` as identical. Anything
-    else (including missing/None/True) is treated as truthy here, which is
-    the safe direction for this regression guard.
+    Mirrors ansible's BOOLEANS_FALSE set
+    (ansible/module_utils/parsing/convert_bool.py): {'n','no','false','f','0','off'}.
+    Anything else (including missing/None/True) is treated as truthy here, which
+    is the safe direction for this regression guard.
     """
     if value is False or value == 0:
         return True
     if isinstance(value, str):
-        return value.strip().lower() in {"false", "no", "off", "0"}
+        return value.strip().lower() in {"false", "no", "off", "0", "n", "f"}
     return False
+
+
+# Local-equivalent delegate targets. Ansible treats `localhost`, `127.0.0.1`,
+# and `::1` as referring to the controller host (subject to inventory
+# overrides). The regression guard normalises across these so an operator
+# copy-pasting ansible docs that use `127.0.0.1` cannot bypass the guard.
+_LOCAL_DELEGATE_TARGETS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def _is_local_delegate(value) -> bool:
+    if not isinstance(value, str):
+        return False
+    return value.strip().lower() in _LOCAL_DELEGATE_TARGETS
 
 
 class TestKamailioDelegateTasksNoBecome:
@@ -97,10 +121,10 @@ class TestKamailioDelegateTasksNoBecome:
             doc = yaml.safe_load(f)
         tasks = _collect_tasks(doc)
         delegated = [
-            t for t in tasks if t.get("delegate_to") == "localhost"
+            t for t in tasks if _is_local_delegate(t.get("delegate_to"))
         ]
         assert delegated, (
-            "kamailio/tasks/main.yml has no `delegate_to: localhost` tasks. "
+            "kamailio/tasks/main.yml has no local-delegate tasks. "
             "Did the cert-staging validation get moved? Update or delete "
             "this test if the move was intentional."
         )
@@ -109,7 +133,7 @@ class TestKamailioDelegateTasksNoBecome:
             if not _is_falsy_become(t.get("become"))
         ]
         assert not offenders, (
-            f"kamailio/tasks/main.yml has `delegate_to: localhost` tasks "
+            f"kamailio/tasks/main.yml has local-delegate tasks "
             f"WITHOUT `become: false`: "
             f"{[t.get('name', '<unnamed>') for t in offenders]}. "
             f"ansible.cfg's global `become = True` would force sudo on the "
@@ -135,15 +159,16 @@ class TestRepoWideDelegateLocalhostBecomeFalse:
                 continue
             files_scanned += 1
             for task in _collect_tasks(doc):
-                if task.get("delegate_to") != "localhost":
+                if not _is_local_delegate(task.get("delegate_to")):
                     continue
                 if not _is_falsy_become(task.get("become")):
                     offenders.append(
                         (path.relative_to(REPO_ROOT), task.get("name", "<unnamed>"))
                     )
-        assert files_scanned >= 1, (
-            "Test scanned 0 ansible YAML files. Either the layout moved or "
-            "the rglob is broken."
+        assert files_scanned >= 5, (
+            f"Test scanned only {files_scanned} ansible YAML file(s); expected "
+            f">= 5 for current repo layout. Either layout shrank dramatically "
+            f"or the rglob is broken. Investigate before merging."
         )
         assert not offenders, (
             f"{len(offenders)} `delegate_to: localhost` task(s) without "
