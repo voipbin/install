@@ -117,6 +117,37 @@ CONFIG_SCHEMA = {
                 "to skip HOMER capture entirely. PR-U-3."
             ),
         },
+        "cert_mode": {
+            "type": "string",
+            "enum": ["self_signed", "manual"],
+            "description": (
+                "PR-Z: Kamailio TLS cert provisioning mode. "
+                "'self_signed' (default) — installer generates a CA and "
+                "issues per-SAN leaves on every apply. "
+                "'manual' — operator supplies per-SAN fullchain.pem + "
+                "privkey.pem under cert_manual_dir/<san>/. "
+                "ACME mode is reserved for PR-AC and is not yet supported."
+            ),
+        },
+        "cert_manual_dir": {
+            "type": ["string", "null"],
+            "description": (
+                "PR-Z: required when cert_mode == 'manual'. Absolute path "
+                "to a directory whose per-SAN subdirectories each contain "
+                "fullchain.pem + privkey.pem. Forbidden when cert_mode != "
+                "'manual'."
+            ),
+        },
     },
     "additionalProperties": False,
+    "allOf": [
+        {
+            "if": {"properties": {"cert_mode": {"const": "manual"}}, "required": ["cert_mode"]},
+            "then": {"required": ["cert_manual_dir"], "properties": {"cert_manual_dir": {"type": "string", "minLength": 1}}},
+        },
+        {
+            "if": {"properties": {"cert_mode": {"const": "self_signed"}}, "required": ["cert_mode"]},
+            "then": {"properties": {"cert_manual_dir": {"type": "null"}}},
+        },
+    ],
 }

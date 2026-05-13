@@ -33,3 +33,6 @@ terraform/tfplan
 
 # Pytest
 .pytest_cache/
+
+# PR-Z: TLS cert staging (plaintext leaf material; cleaned post-success)
+.cert-staging/

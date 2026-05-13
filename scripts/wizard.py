@@ -52,6 +52,22 @@ def _validate_custom_region(value: str) -> Optional[str]:
     return None
 
 
+def _validate_cert_manual_dir(value: str) -> Optional[str]:
+    """PR-Z: validate manual-mode cert directory path.
+
+    Checks only that the path exists and is a directory. The fine-grained
+    per-SAN layout check (fullchain.pem + privkey.pem under each SAN
+    subdirectory) is performed by cert_lifecycle._validate_manual_cert_dir
+    at apply time, not here.
+    """
+    import os
+    if not value:
+        return "Path is required for cert_mode=manual"
+    if not os.path.isdir(value):
+        return f"Directory does not exist: {value}"
+    return None
+
+
 def derive_zone(region: str, gke_type: str) -> str:
     """Derive default zone from region. For zonal, append '-a'."""
     if gke_type == "regional":
@@ -180,6 +196,31 @@ def run_wizard(existing_config: Optional[dict[str, Any]] = None) -> Optional[dic
             validate_fn=_validate_domain,
         )
         config["domain"] = domain
+
+        # --- Q6b (PR-Z): Kamailio TLS Cert Mode ---
+        print_header("6b. Kamailio TLS Certificate Mode")
+        cert_options = [
+            {"id": "self_signed", "name": "self_signed",
+             "note": "installer generates a CA + per-SAN leaves (default)"},
+            {"id": "manual", "name": "manual",
+             "note": "operator supplies fullchain.pem + privkey.pem per SAN"},
+        ]
+        default_cert = 1 if defaults.get("cert_mode") != "manual" else 2
+        cert_idx = prompt_choice(
+            "Certificate mode for Kamailio TLS (self_signed/manual)?",
+            cert_options,
+            default=default_cert,
+        )
+        config["cert_mode"] = cert_options[cert_idx - 1]["id"]
+        if config["cert_mode"] == "manual":
+            manual_dir = prompt_text(
+                "Path to manual cert directory",
+                default=defaults.get("cert_manual_dir", "") or "",
+                validate_fn=_validate_cert_manual_dir,
+            )
+            config["cert_manual_dir"] = manual_dir
+        else:
+            config["cert_manual_dir"] = None
 
         # --- Q7: Cloud DNS ---
         print_header("7. Cloud DNS")

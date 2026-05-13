@@ -111,6 +111,7 @@
       - python3
       - htop
       - net-tools
+      - rsync
 
 # --- Node Exporter (Prometheus metrics) ---
 - name: Create node_exporter group

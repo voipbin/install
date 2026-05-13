@@ -16,6 +16,35 @@ from scripts.utils import INSTALLER_DIR, run_cmd
 ANSIBLE_DIR = INSTALLER_DIR / "ansible"
 PLAYBOOK_SITE = ANSIBLE_DIR / "playbooks" / "site.yml"
 INVENTORY_SCRIPT = ANSIBLE_DIR / "inventory" / "gcp_inventory.py"
+REQUIREMENTS_YML = ANSIBLE_DIR / "requirements.yml"
+
+
+def _install_ansible_collections() -> bool:
+    """Install ansible-galaxy collections listed in ansible/requirements.yml.
+
+    No-op when the file is absent. Surfaces a clear error and returns False
+    when ``ansible-galaxy`` fails. Fix for D4 F1 (PR-Z): ensure the
+    ``ansible.posix`` (for the ``ansible.posix.synchronize`` cert deploy
+    task) and ``community.docker`` (for ``docker_compose_v2`` /
+    ``docker_prune``) collections the kamailio role relies on are present
+    before the playbook runs. The authoritative collection list lives in
+    ``ansible/requirements.yml``.
+    """
+    if not REQUIREMENTS_YML.exists():
+        return True
+    cmd = [
+        "ansible-galaxy", "collection", "install",
+        "-r", str(REQUIREMENTS_YML),
+    ]
+    print_step("Running: ansible-galaxy collection install")
+    result = run_cmd(
+        cmd, capture=False, timeout=600,
+        cwd=ANSIBLE_DIR, env=_build_ansible_env(),
+    )
+    if result.returncode != 0:
+        print_error("ansible-galaxy collection install failed")
+        return False
+    return True
 
 # Ansible config-related env vars that operators may have exported from their
 # shell profile, CI runner, or direnv. Each one can silently override our
@@ -183,6 +212,15 @@ def _write_extra_vars(
     ansible_vars["kamailio_auth_db_url"] = _build_kamailio_auth_db_url(
         config, terraform_outputs
     )
+    # PR-Z D5/D6/D7 fix: pass cert_staging_dir as an extra-var so the
+    # kamailio role's synchronize task can reference a stable absolute
+    # path. ``{{ playbook_dir }}/../.cert-staging/`` resolves relative to
+    # ansible/playbooks/ and yields ansible/.cert-staging/, NOT
+    # INSTALLER_DIR/.cert-staging/ where the cert_provision pipeline
+    # stage actually writes the PEMs. The role asserts this directory
+    # exists before running synchronize.
+    from scripts.pipeline import CERT_STAGING_DIRNAME
+    ansible_vars["cert_staging_dir"] = str(INSTALLER_DIR / CERT_STAGING_DIRNAME)
     # Create temp file with restricted permissions (owner-only read/write)
     fd = tempfile.mkstemp(suffix=".json", prefix="voipbin_extra_vars_")
     os.fchmod(fd[0], 0o600)
@@ -212,6 +250,8 @@ def ansible_run(
 
     extra_vars_path = _write_extra_vars(config, terraform_outputs)
     try:
+        if not _install_ansible_collections():
+            return False
         project_id = config.get("gcp_project_id", "")
         zone = config.get("zone", "")
         cmd = [
@@ -246,6 +286,8 @@ def ansible_check(
     """Dry-run Ansible with --check. Returns True on success."""
     extra_vars_path = _write_extra_vars(config, terraform_outputs)
     try:
+        if not _install_ansible_collections():
+            return False
         project_id = config.get("gcp_project_id", "")
         zone = config.get("zone", "")
         cmd = [

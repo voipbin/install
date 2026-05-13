@@ -24,16 +24,44 @@
     owner: "{{ app_user }}"
     group: "{{ app_group }}"
 
-- name: Create certificate directories
+- name: Assert cert deploy path is safe
+  assert:
+    that:
+      - certs_deploy_path is string
+      - certs_deploy_path.startswith('/opt/kamailio-docker/')
+      - (certs_deploy_path | length) > 21
+      - "'..' not in (certs_deploy_path.split('/') | list)"
+    fail_msg: "certs_deploy_path must be an absolute path under /opt/kamailio-docker/ to prevent rm -rf risk from synchronize delete=true."
+
+- name: Assert cert staging directory exists
+  stat:
+    path: "{{ cert_staging_dir }}"
+  register: _cert_staging_stat
+  delegate_to: localhost
+
+- name: Fail if cert staging missing
+  fail:
+    msg: "cert_staging_dir {{ cert_staging_dir }} does not exist. The cert_provision pipeline stage must run before ansible_run."
+  when: not _cert_staging_stat.stat.exists or not _cert_staging_stat.stat.isdir
+
+- name: Sync cert-staging to VM
+  ansible.posix.synchronize:
+    src: "{{ cert_staging_dir }}/"
+    dest: "{{ certs_deploy_path }}/"
+    delete: true
+    recursive: true
+    rsync_opts:
+      - "--chmod=D700,F600"
+  notify: Recreate kamailio containers
+
+- name: Ensure fullchain.pem world-readable inside container
   file:
-    path: "{{ certs_deploy_path }}/{{ item }}"
-    state: directory
-    mode: '0755'
-    owner: "{{ app_user }}"
-    group: "{{ app_group }}"
+    path: "{{ certs_deploy_path }}/{{ item }}/fullchain.pem"
+    mode: '0644'
   loop:
     - "sip.{{ domain }}"
     - "registrar.{{ domain }}"
+  notify: Recreate kamailio containers
 
 # --- Deploy configuration files ---
 - name: Template docker-compose.yml

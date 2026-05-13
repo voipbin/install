@@ -102,6 +102,8 @@ class TestStageOrdering:
     def test_apply_stages_order(self):
         # PR-R reordered: k8s_apply + reconcile_k8s_outputs now precede ansible_run
         # so kamailio's .env can be rendered with harvested k8s LB IPs.
+        # PR-Z inserts cert_provision between reconcile_k8s_outputs and ansible_run
+        # so kamailio's TLS certs are issued before the playbook deploys them.
         expected = (
             "terraform_init",
             "reconcile_imports",
@@ -109,6 +111,7 @@ class TestStageOrdering:
             "reconcile_outputs",
             "k8s_apply",
             "reconcile_k8s_outputs",
+            "cert_provision",
             "ansible_run",
         )
         assert APPLY_STAGES == expected

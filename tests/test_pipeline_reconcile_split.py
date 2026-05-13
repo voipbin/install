@@ -53,6 +53,7 @@ class TestApplyStagesOrder:
             "reconcile_outputs",
             "k8s_apply",
             "reconcile_k8s_outputs",
+            "cert_provision",
             "ansible_run",
         )
 
@@ -410,6 +411,7 @@ class TestPipelineFlowSkipsCompleted:
                 "reconcile_outputs":       "pending",
                 "k8s_apply":               "pending",
                 "reconcile_k8s_outputs":   "pending",
+                "cert_provision":          "pending",
                 "ansible_run":             "pending",
             },
         })
@@ -436,6 +438,7 @@ class TestPipelineFlowSkipsCompleted:
             "reconcile_outputs",
             "k8s_apply",
             "reconcile_k8s_outputs",
+            "cert_provision",
             "ansible_run",
         ]
 

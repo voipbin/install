@@ -1,0 +1,9 @@
+---
+# Ansible Galaxy collections required by the install repo.
+# PR-Z: ansible.posix.synchronize is used for cert-staging deploy
+# (ansible/roles/kamailio/tasks/main.yml).
+collections:
+  - name: ansible.posix
+    version: ">=1.5.0"
+  - name: community.docker
+    version: ">=3.0.0"
