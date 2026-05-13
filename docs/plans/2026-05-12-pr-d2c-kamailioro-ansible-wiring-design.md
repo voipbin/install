@@ -1,5 +1,7 @@
 # PR-D2c. kamailioro ansible wiring + URL-safety guard
 
+> **SUPERSEDED IN PART by PR-AC-1 (2026-05-13):** the percent-encoding policy described below (§0, §1, §3, §4.2, §5.3, §6 mutant 6, §7) was disproven live in dogfood iter#11. Kamailio's `db_mysql` driver does NOT percent-decode the password component of the connection URL; the installer now emits the password raw. The locked alphabet regex guard remains correct and continues to enforce URL-structural safety. See `docs/plans/2026-05-13-pr-ac-1-kamailio-mysql-password-raw-design.md` for the corrected design and `docs/operations/cloudsql-credentials.md` §3 + §8 for the operator-facing policy.
+
 Status. Design v5 APPROVED (2026-05-13, after 5 design-review iterations; convergence reached at iter 5 with zero new on-disk defects)
 Author. Hermes (CPO)
 Date. 2026-05-12 (v1), 2026-05-13 v2, 2026-05-13 v3, 2026-05-13 v4, 2026-05-13 v5

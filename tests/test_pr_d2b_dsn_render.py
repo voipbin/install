@@ -286,7 +286,7 @@ class TestPasswordYamlSafetyForLockedAlphabet:
         )
         assert self.LOCKED_ALPHABET.isdisjoint(self.URL_HOSTILE), (
             "Locked password alphabet contains chars that break DSN userinfo "
-            "without percent-encoding; PR-D2c URL safety design assumes this "
+            "without percent-encoding; PR-AC-1 raw-password emission assumes this "
             "guarantee."
         )
 
