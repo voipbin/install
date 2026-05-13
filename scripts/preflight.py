@@ -434,6 +434,36 @@ def check_homer_credentials_present(terraform_outputs: dict[str, str]) -> None:
         )
 
 
+def check_kamailio_homer_uri_present(
+    terraform_outputs: dict[str, str],
+    config,
+) -> None:
+    """PR-U-3: assert Kamailio HEP capture has a destination address.
+
+    When `config.homer_enabled` is True (default), the heplify-client
+    sidecar in the Kamailio docker-compose needs ${HOMER_URI} to point at
+    a real heplify-server LoadBalancer. The harvested `heplify_lb_ip` is
+    the source of truth; if it is empty, the Jinja gate in group_vars
+    renders an empty HOMER_URI and the compose-level
+    `{% if homer_enabled and heplify_lb_ip %}` gate omits the sidecar
+    entirely. That silent-skip is benign on its own, but the operator's
+    intent was capture-on. Make the failure explicit at preflight.
+
+    No-op when `config.homer_enabled` is explicitly False.
+    """
+    if not bool(config.get("homer_enabled", True)):
+        return
+    lb_ip = (terraform_outputs.get("heplify_lb_ip", "") or "").strip()
+    if not lb_ip:
+        raise PreflightError(
+            "Kamailio HOMER capture is enabled (config.homer_enabled=true) "
+            "but heplify_lb_ip is empty in terraform_outputs. Run "
+            "`voipbin-install apply --stage reconcile_k8s_outputs` to "
+            "harvest the heplify Service LoadBalancer address, or set "
+            "`homer_enabled: false` in config.yaml to disable HEP capture."
+        )
+
+
 def run_preflight_display(results: list[PreflightResult]) -> bool:
     """Display preflight results. Returns True if all passed."""
     print_header("Checking prerequisites...")

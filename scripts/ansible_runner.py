@@ -173,6 +173,12 @@ def _write_extra_vars(
     ansible_vars["heplify_lb_ip"] = (
         terraform_outputs.get("heplify_lb_ip", "") or ""
     )
+    # PR-U-3: HOMER capture toggle. Direct flat-var injection (no _flag
+    # suffix indirection) — matches the heplify_lb_ip pattern just above.
+    # Ansible extra-vars precedence overrides the group_vars default.
+    ansible_vars["homer_enabled"] = (
+        "true" if bool(config.get("homer_enabled", True)) else "false"
+    )
     ansible_vars["rtpengine_socks"] = _build_rtpengine_socks(terraform_outputs)
     ansible_vars["kamailio_auth_db_url"] = _build_kamailio_auth_db_url(
         config, terraform_outputs
@@ -190,6 +196,20 @@ def ansible_run(
     terraform_outputs: dict[str, Any],
 ) -> bool:
     """Run site.yml with inventory and extra vars. Returns True on success."""
+    # PR-U-3: HOMER capture preflight (hard fail).
+    # Skip-imported here (not at module top) to mirror PR-U-2's k8s_apply
+    # preflight wiring pattern and avoid widening the import graph for
+    # callers that just want to inspect this module.
+    from scripts.preflight import (
+        PreflightError,
+        check_kamailio_homer_uri_present,
+    )
+    try:
+        check_kamailio_homer_uri_present(terraform_outputs, config)
+    except PreflightError as exc:
+        print_error(str(exc))
+        return False
+
     extra_vars_path = _write_extra_vars(config, terraform_outputs)
     try:
         project_id = config.get("gcp_project_id", "")

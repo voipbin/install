@@ -80,6 +80,41 @@ services:
     logging:
       driver: gcplogs
 
+{% if homer_enabled | bool and heplify_lb_ip %}
+  # HEP capture client for Homer (PR-U-3)
+  # Mirrors production voip-kamailio-docker. Sniffs host-network SIP traffic
+  # and forwards HEP packets to the heplify-server internal LoadBalancer at
+  # ${HOMER_URI}. Block is gated on (homer_enabled AND heplify_lb_ip) so
+  # operators who disable HOMER (or whose LB has not been harvested yet) get
+  # NO sidecar in the rendered file, rather than a broken `-hs :9060` arg.
+  # depends_on uses short-form list. The kamailio image carries a baked-in
+  # HEALTHCHECK (kamailio-exporter relies on `service_healthy` against it),
+  # but heplify-client only needs the host interface up — packet capture
+  # does not require Kamailio's SIP socket to be fully bound. Short-form
+  # `- kamailio` waits for service_started only, which is sufficient.
+  heplify-client:
+    image: sipcapture/heplify:1.56
+    container_name: kamailio-heplify
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - "-i"
+      - "any"
+      - "-hs"
+      - "${HOMER_URI}"
+      - "-m"
+      - "SIP"
+      - "-dim"
+      - "REGISTER"
+    depends_on:
+      - kamailio
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+{% endif %}
+
 volumes:
   kamailio-logs:
     driver: local

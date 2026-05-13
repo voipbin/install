@@ -107,6 +107,16 @@ CONFIG_SCHEMA = {
                 "Auto-populated from Terraform output `tmp_bucket_name`."
             ),
         },
+        "homer_enabled": {
+            "type": "boolean",
+            "description": (
+                "Enable Kamailio HEP capture sidecar (heplify-client). "
+                "When True, the kamailio docker-compose includes the "
+                "sipcapture/heplify sidecar that forwards SIP traffic to "
+                "the heplify-server LoadBalancer. Default True. Disable "
+                "to skip HOMER capture entirely. PR-U-3."
+            ),
+        },
     },
     "additionalProperties": False,
 }

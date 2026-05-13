@@ -24,7 +24,7 @@ kamailio_pkg_size: 128
 rtpengine_socks: ""
 
 # Homer monitoring
-homer_uri: ""
+homer_uri: "{% if heplify_lb_ip %}{{ heplify_lb_ip }}:9060{% endif %}"
 
 # Database auth (set via extra-vars for production)
 kamailio_auth_db_url: ""
@@ -38,7 +38,7 @@ pike_rate: 20
 pike_timeout: 300
 
 # Homer HEP capture
-homer_enabled: "false"
+homer_enabled: "true"
 
 # Redis cache for Kamailio
 redis_cache_address: "{{ redis_lb_ip }}"
