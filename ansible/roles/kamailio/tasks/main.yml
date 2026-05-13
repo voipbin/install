@@ -24,13 +24,28 @@
     owner: "{{ app_user }}"
     group: "{{ app_group }}"
 
-- name: Create certificate directories
+- name: Assert cert deploy path is safe
+  assert:
+    that:
+      - certs_deploy_path is string
+      - certs_deploy_path.startswith('/opt/kamailio-docker/')
+      - (certs_deploy_path | length) > 21
+    fail_msg: "certs_deploy_path must be an absolute path under /opt/kamailio-docker/ to prevent rm -rf risk from synchronize delete=true."
+
+- name: Sync cert-staging to VM
+  ansible.posix.synchronize:
+    src: "{{ playbook_dir }}/../.cert-staging/"
+    dest: "{{ certs_deploy_path }}/"
+    delete: true
+    recursive: true
+    rsync_opts:
+      - "--chmod=D700,F600"
+  notify: Recreate kamailio containers
+
+- name: Ensure fullchain.pem world-readable inside container
   file:
-    path: "{{ certs_deploy_path }}/{{ item }}"
-    state: directory
-    mode: '0755'
-    owner: "{{ app_user }}"
-    group: "{{ app_group }}"
+    path: "{{ certs_deploy_path }}/{{ item }}/fullchain.pem"
+    mode: '0644'
   loop:
     - "sip.{{ domain }}"
     - "registrar.{{ domain }}"
