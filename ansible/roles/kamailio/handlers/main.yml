@@ -15,3 +15,10 @@
     name: node_exporter
     state: restarted
     daemon_reload: true
+
+- name: Reapply forwarded LB routes
+  systemd:
+    name: voipbin-kamailio-lb-routes
+    state: restarted
+    daemon_reload: true
+  become: true

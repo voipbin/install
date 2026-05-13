@@ -96,6 +96,45 @@
   tags: ['config', 'env']
   notify: Recreate kamailio containers
 
+# --- Forwarded LB IP local-route shim (PR-AC-2) ---
+# Kamailio runs with network_mode: host and listens on the GCP Network LB
+# external IP. The kernel rejects bind() unless the IP is in the local route
+# table. On production, google-guest-agent auto-adds these routes; on
+# environments where guest-agent is broken (e.g. Debian 12 +
+# google-guest-agent 20260423.01 manager crash), Kamailio crashloops with
+# "Cannot assign requested address". Owning the route from the install repo
+# is idempotent on production and decouples from guest-agent fragility.
+- name: Install forwarded-LB-IP shim script
+  template:
+    src: voipbin-kamailio-lb-routes.sh.j2
+    dest: /usr/local/sbin/voipbin-kamailio-lb-routes
+    mode: '0755'
+    owner: root
+    group: root
+  become: true
+  tags: ['lb-route', 'deploy']
+  notify: Reapply forwarded LB routes
+
+- name: Install forwarded-LB-IP systemd oneshot unit
+  template:
+    src: voipbin-kamailio-lb-routes.service.j2
+    dest: /etc/systemd/system/voipbin-kamailio-lb-routes.service
+    mode: '0644'
+    owner: root
+    group: root
+  become: true
+  tags: ['lb-route', 'deploy']
+  notify: Reapply forwarded LB routes
+
+- name: Enable and start forwarded-LB-IP shim
+  systemd:
+    name: voipbin-kamailio-lb-routes
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  become: true
+  tags: ['lb-route', 'deploy']
+
 # --- Docker pull and start ---
 - name: Pull latest Docker images
   community.docker.docker_compose_v2:
