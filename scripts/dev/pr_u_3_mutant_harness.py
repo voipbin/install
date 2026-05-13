@@ -154,6 +154,13 @@ def m15():
                 "container_name: kamailio-heplify\n")
 
 
+@mutant("flip Jinja gate AND → OR (iter-2 PR review hardening)")
+def m16():
+    mutate_file(TARGETS[0],
+                "{% if homer_enabled | bool and heplify_lb_ip %}",
+                "{% if homer_enabled | bool or heplify_lb_ip %}")
+
+
 def main():
     bak = backup()
     caught, missed = 0, []

@@ -107,10 +107,15 @@ class TestComposeJinjaGate:
         assert idx_if < idx_client < idx_endif, (
             "Jinja gate must wrap heplify-client (if -> client -> endif order)"
         )
-        # Gate must include both conditions
+        # Gate must include both conditions ANDed (iter-2 PR review pinning).
         gate_line = text[idx_if : text.index("%}", idx_if) + 2]
-        assert "homer_enabled" in gate_line and "heplify_lb_ip" in gate_line, (
-            f"gate must check both homer_enabled AND heplify_lb_ip; got: {gate_line}"
+        # An `or` here would render the sidecar with broken `-hs :9060`
+        # whenever homer_enabled=true but heplify_lb_ip is empty.
+        assert re.search(
+            r"homer_enabled\s*\|\s*bool\s+and\s+heplify_lb_ip",
+            gate_line,
+        ), (
+            f"gate must AND the two conditions (not OR); got: {gate_line}"
         )
 
 

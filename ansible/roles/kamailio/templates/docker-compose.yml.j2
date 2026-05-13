@@ -87,8 +87,11 @@ services:
   # ${HOMER_URI}. Block is gated on (homer_enabled AND heplify_lb_ip) so
   # operators who disable HOMER (or whose LB has not been harvested yet) get
   # NO sidecar in the rendered file, rather than a broken `-hs :9060` arg.
-  # depends_on uses short-form list because Kamailio has no healthcheck
-  # declared; long-form `service_healthy` would block indefinitely.
+  # depends_on uses short-form list. The kamailio image carries a baked-in
+  # HEALTHCHECK (kamailio-exporter relies on `service_healthy` against it),
+  # but heplify-client only needs the host interface up — packet capture
+  # does not require Kamailio's SIP socket to be fully bound. Short-form
+  # `- kamailio` waits for service_started only, which is sufficient.
   heplify-client:
     image: sipcapture/heplify:1.56
     container_name: kamailio-heplify
