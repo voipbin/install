@@ -168,6 +168,11 @@ def _write_extra_vars(
     ansible_vars["asterisk_conference_lb_ip"] = (
         terraform_outputs.get("asterisk_conference_lb_ip", "") or ""
     )
+    # PR-U-1: heplify-server LoadBalancer IP for Kamailio HOMER_URI wiring
+    # (consumed by env.j2 in PR-U-3, currently no-op until that PR lands).
+    ansible_vars["heplify_lb_ip"] = (
+        terraform_outputs.get("heplify_lb_ip", "") or ""
+    )
     ansible_vars["rtpengine_socks"] = _build_rtpengine_socks(terraform_outputs)
     ansible_vars["kamailio_auth_db_url"] = _build_kamailio_auth_db_url(
         config, terraform_outputs

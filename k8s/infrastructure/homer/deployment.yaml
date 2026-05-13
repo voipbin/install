@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: heplify-deployment
+  namespace: infrastructure
+  labels:
+    app: heplify-server
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: heplify-server
+  template:
+    metadata:
+      labels:
+        app: heplify-server
+    spec:
+      containers:
+        - name: heplify
+          image: heplify-server  # kustomize override -> sipcapture/heplify-server:1.30
+          command:
+            - "./heplify-server"
+          env:
+            # PLACEHOLDER_CLOUDSQL_POSTGRES_PRIVATE_IP is substituted at apply-time
+            # by scripts/k8s.py:_build_substitution_map(); see PR-D1 for the source
+            # Terraform output. Heplify wants <host>:<port>, so we append :5432
+            # literally in this manifest (Postgres default port is fixed).
+            - name: HEPLIFYSERVER_DBADDR
+              value: PLACEHOLDER_CLOUDSQL_POSTGRES_PRIVATE_IP:5432
+            - name: HEPLIFYSERVER_DBDRIVER
+              value: postgres
+            # NOTE: HEPLIFYSERVER_DBSHEMA misspelling is INTENTIONAL. This is
+            # the actual env var name the upstream heplify-server binary reads
+            # (https://github.com/sipcapture/heplify-server). Do not "fix" to
+            # DBSCHEMA; the binary will not see it.
+            - name: HEPLIFYSERVER_DBSHEMA
+              value: homer7
+            - name: HEPLIFYSERVER_DBDROPDAYS
+              value: "7"
+            # PR-U-2 will populate these via the substitution map (or switch to
+            # valueFrom.secretKeyRef from voipbin-secret). Until then the
+            # literal PLACEHOLDER_* strings cause heplify to fail Postgres auth
+            # which is the intentional mid-state documented in the PR-U-1 design.
+            - name: HEPLIFYSERVER_DBUSER
+              value: PLACEHOLDER_HOMER_DB_USER
+            - name: HEPLIFYSERVER_DBPASS
+              value: PLACEHOLDER_HOMER_DB_PASS
+            - name: HEPLIFYSERVER_DBDATATABLE
+              value: homer_data
+            - name: HEPLIFYSERVER_DBCONFTABLE
+              value: homer_config
+            - name: HEPLIFYSERVER_ESADDR
+            - name: HEPLIFYSERVER_CONFIGHTTPADDR
+              value: 0.0.0.0:9090
+            - name: HEPLIFYSERVER_HEPADDR
+              value: 0.0.0.0:9060
+            - name: HEPLIFYSERVER_HEPTCPADDR
+              value: 0.0.0.0:9060
+            - name: HEPLIFYSERVER_HEPTLSADDR
+              value: 0.0.0.0:9061
+            - name: HEPLIFYSERVER_LOGLVL
+              value: error
+            - name: HEPLIFYSERVER_LOGSTD
+              value: "true"
+            - name: HEPLIFYSERVER_PROMADDR
+              value: 0.0.0.0:9096
+            - name: HEPLIFYSERVER_PROMTARGETIP
+            - name: HEPLIFYSERVER_PROMTARGETNAME
+          ports:
+            - containerPort: 9060
+              protocol: TCP
+            - containerPort: 9060
+              protocol: UDP
+            - containerPort: 9061
+              protocol: TCP
+            - containerPort: 9090
+              protocol: TCP
+            - containerPort: 9096
+              protocol: TCP
+          resources:
+            requests:
+              cpu: "5m"
+              memory: "12M"
+            limits:
+              cpu: "50m"
+              memory: "128M"
+
+        - name: homer-webapp
+          image: homer-webapp  # kustomize override -> pchero/homer-app:0.0.4
+          env:
+            - name: DB_HOST
+              value: PLACEHOLDER_CLOUDSQL_POSTGRES_PRIVATE_IP
+            - name: DB_USER
+              value: PLACEHOLDER_HOMER_DB_USER
+            - name: DB_PASS
+              value: PLACEHOLDER_HOMER_DB_PASS
+            - name: HOMER_ENABLE_API
+              value: "true"
+            - name: HOMER_LOGLEVEL
+              value: debug
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: "4m"
+              memory: "12M"
+            limits:
+              cpu: "40m"
+              memory: "128M"

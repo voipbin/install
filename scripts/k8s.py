@@ -33,6 +33,7 @@ K8S_DIR = INSTALLER_DIR / "k8s"
 _LB_SERVICES: list[tuple[str, str, str]] = [
     ("infrastructure", "redis", "redis_lb_ip"),
     ("infrastructure", "rabbitmq", "rabbitmq_lb_ip"),
+    ("infrastructure", "heplify-udp", "heplify_lb_ip"),
     ("voip", "asterisk-call-udp", "asterisk_call_lb_ip"),
     ("voip", "asterisk-registrar-udp", "asterisk_registrar_lb_ip"),
     ("voip", "asterisk-conference-udp", "asterisk_conference_lb_ip"),
@@ -194,6 +195,25 @@ def _build_substitution_map(
         ),
         "PLACEHOLDER_DSN_PASSWORD_POSTGRES_BIN_MANAGER": terraform_outputs.get(
             "cloudsql_postgres_password_bin_manager", ""
+        ),
+        # PR-U-1: HOMER (heplify-server + homer-webapp) database credentials.
+        # Reuse the existing CloudSQL Postgres instance and the `voipbin`
+        # user (locked decision 2026-05-13). PR-U-2 will add the actual
+        # homer_data/homer_config databases on that instance; until then
+        # heplify-server will fail Postgres auth and CrashLoop (intentional
+        # mid-state, see PR-U-1 design §8). The fall-back chain is:
+        #   secrets.yaml.homer_db_password (operator override)
+        #     -> secrets.yaml.cloudsql_voipbin_password (PR-D1 shared)
+        #       -> ""  (empty, heplify fails fast)
+        "PLACEHOLDER_HOMER_DB_USER": (
+            config.get("homer_db_user", "")
+            or config.get("cloudsql_voipbin_user", "")
+            or "voipbin"
+        ),
+        "PLACEHOLDER_HOMER_DB_PASS": (
+            secrets.get("homer_db_password", "")
+            or secrets.get("cloudsql_voipbin_password", "")
+            or ""
         ),
         # Terraform outputs.
         # RabbitMQ broker bootstrap credentials. Default user/pass is

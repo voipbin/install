@@ -65,11 +65,13 @@ class TestKeyContractMatchesK8sLBServices:
     renders an empty slot in some flow and Kamailio CrashLoops."""
 
     def test_lb_services_has_expected_keys(self):
-        # Sanity. Pin the 5-key contract so a refactor of _LB_SERVICES
-        # that drops a Service is caught upstream of ansible.
+        # Sanity. Pin the 6-key contract so a refactor of _LB_SERVICES
+        # that drops a Service is caught upstream of ansible. PR-U-1
+        # expanded the original 5-key set to 6 by adding heplify_lb_ip.
         assert set(_FLAT_KEYS) == {
             "redis_lb_ip",
             "rabbitmq_lb_ip",
+            "heplify_lb_ip",
             "asterisk_call_lb_ip",
             "asterisk_registrar_lb_ip",
             "asterisk_conference_lb_ip",
@@ -88,6 +90,7 @@ class TestK8sLbIpsLandAtTopLevel:
             ("asterisk_call_lb_ip", "10.164.0.18"),
             ("asterisk_registrar_lb_ip", "10.164.0.20"),
             ("asterisk_conference_lb_ip", "10.164.0.21"),
+            ("heplify_lb_ip", "10.164.0.99"),
         ],
     )
     def test_individual_key_lands_at_top_level(self, key, value):
@@ -104,7 +107,7 @@ class TestK8sLbIpsLandAtTopLevel:
             f"Expected {value!r}, got {data.get(key)!r}."
         )
 
-    def test_all_five_keys_present_together(self):
+    def test_all_six_keys_present_together(self):
         outputs = {
             "kamailio_internal_ips": [],
             "rtpengine_external_ips": [],
@@ -112,6 +115,7 @@ class TestK8sLbIpsLandAtTopLevel:
             "kamailio_internal_lb_ip": "10.0.0.2",
             "redis_lb_ip": "10.164.0.10",
             "rabbitmq_lb_ip": "10.164.0.11",
+            "heplify_lb_ip": "10.164.0.99",
             "asterisk_call_lb_ip": "10.164.0.18",
             "asterisk_registrar_lb_ip": "10.164.0.20",
             "asterisk_conference_lb_ip": "10.164.0.21",
@@ -170,6 +174,7 @@ class TestDefensiveDefaultsForMissingKeys:
             "rtpengine_external_ips": [],
             "redis_lb_ip": None,
             "rabbitmq_lb_ip": None,
+            "heplify_lb_ip": None,
             "asterisk_call_lb_ip": None,
             "asterisk_registrar_lb_ip": None,
             "asterisk_conference_lb_ip": None,
