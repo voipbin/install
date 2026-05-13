@@ -21,7 +21,8 @@ spec:
     spec:
       containers:
         - name: transcribe-manager
-          image: voipbin/transcribe-manager
+          image: transcribe-manager-image
+          imagePullPolicy: Always
           ports:
             - containerPort: 2112
               name: metrics

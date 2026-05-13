@@ -232,6 +232,15 @@ The check inspects all three cert sources (two `voipbin-tls` Secrets +
 installer's placeholder cert (Subject CN = `voipbin-self-signed`).
 
 
+## Image Policy
+
+VoIPBin install renders all workload images through a kustomize `images:`
+block in `k8s/kustomization.yaml`. The default is `:latest`, tracking the
+monorepo CI's most recent build per service, with `imagePullPolicy: Always`
+declared explicitly on every container. To pin a specific commit SHA (single
+service) or upgrade all 31 bin-*-manager services atomically, see
+[docs/operations/image-overrides.md](docs/operations/image-overrides.md).
+
 ## DNS Records
 
 VoIPBin requires 5 DNS A records, each pointing at the reserved static IP

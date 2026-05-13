@@ -21,7 +21,8 @@ spec:
     spec:
       containers:
         - name: pipecat-manager
-          image: voipbin/pipecat-manager
+          image: pipecat-manager-image
+          imagePullPolicy: Always
           ports:
             - containerPort: 2112
               name: metrics

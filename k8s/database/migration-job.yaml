@@ -16,7 +16,8 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: migration
-          image: voipbin/bin-database
+          image: bin-database-image
+          imagePullPolicy: Always
           env:
             - name: DATABASE_DSN
               valueFrom:

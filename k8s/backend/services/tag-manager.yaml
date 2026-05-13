@@ -21,7 +21,8 @@ spec:
     spec:
       containers:
         - name: tag-manager
-          image: voipbin/tag-manager
+          image: tag-manager-image
+          imagePullPolicy: Always
           ports:
             - containerPort: 2112
               name: metrics

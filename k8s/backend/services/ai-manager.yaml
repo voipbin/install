@@ -21,7 +21,8 @@ spec:
     spec:
       containers:
         - name: ai-manager
-          image: voipbin/ai-manager
+          image: ai-manager-image
+          imagePullPolicy: Always
           ports:
             - containerPort: 2112
               name: metrics

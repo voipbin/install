@@ -21,7 +21,8 @@ spec:
     spec:
       containers:
         - name: campaign-manager
-          image: voipbin/campaign-manager
+          image: campaign-manager-image
+          imagePullPolicy: Always
           ports:
             - containerPort: 2112
               name: metrics

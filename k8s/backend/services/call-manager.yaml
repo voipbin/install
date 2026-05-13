@@ -21,7 +21,8 @@ spec:
     spec:
       containers:
         - name: call-manager
-          image: voipbin/call-manager
+          image: call-manager-image
+          imagePullPolicy: Always
           ports:
             - containerPort: 2112
               name: metrics

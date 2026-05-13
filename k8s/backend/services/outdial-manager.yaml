@@ -21,7 +21,8 @@ spec:
     spec:
       containers:
         - name: outdial-manager
-          image: voipbin/outdial-manager
+          image: outdial-manager-image
+          imagePullPolicy: Always
           ports:
             - containerPort: 2112
               name: metrics

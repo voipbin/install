@@ -27,7 +27,8 @@ spec:
           emptyDir: {}
       containers:
         - name: asterisk-proxy
-          image: voipbin/voip-asterisk-proxy
+          image: voip-asterisk-proxy-image
+          imagePullPolicy: Always
           command:
             - "./asterisk-proxy"
           volumeMounts:
@@ -96,7 +97,8 @@ spec:
               cpu: "50m"
               memory: "50M"
         - name: asterisk
-          image: voipbin/voip-asterisk-call
+          image: voip-asterisk-call-image
+          imagePullPolicy: Always
           volumeMounts:
             - name: shared-tmp
               mountPath: /tmp

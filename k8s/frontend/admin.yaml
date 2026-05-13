@@ -17,7 +17,8 @@ spec:
     spec:
       containers:
         - name: admin
-          image: voipbin/square-admin
+          image: square-admin-image
+          imagePullPolicy: Always
           ports:
             - containerPort: 80
               name: http

@@ -21,7 +21,8 @@ spec:
     spec:
       containers:
         - name: talk-manager
-          image: voipbin/talk-manager
+          image: talk-manager-image
+          imagePullPolicy: Always
           ports:
             - containerPort: 2112
               name: metrics

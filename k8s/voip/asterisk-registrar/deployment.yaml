@@ -22,7 +22,8 @@ spec:
       terminationGracePeriodSeconds: 7200
       containers:
         - name: asterisk-proxy
-          image: voipbin/voip-asterisk-proxy
+          image: voip-asterisk-proxy-image
+          imagePullPolicy: Always
           command:
             - "./asterisk-proxy"
           env:
@@ -77,7 +78,8 @@ spec:
               cpu: "50m"
               memory: "50M"
         - name: asterisk
-          image: voipbin/voip-asterisk-registrar
+          image: voip-asterisk-registrar-image
+          imagePullPolicy: Always
           ports:
             - containerPort: 5060
               name: sip-tcp
