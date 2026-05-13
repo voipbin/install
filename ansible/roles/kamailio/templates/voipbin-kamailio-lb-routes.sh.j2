@@ -1,0 +1,29 @@
+#!/bin/bash
+# voipbin-kamailio-lb-routes — Add forwarded LB IPs to the kernel's local
+# route table so Kamailio (host network) can bind to them.
+#
+# Assumptions:
+#  - Single-NIC GCE instance; IPv4-only LB IPs (no IPv6 today).
+#  - Kernel returns EEXIST on duplicate local route; pre-check skips add.
+#  - Runs as root (systemd oneshot unit owns it).
+#
+# Idempotent: pre-check matches any local-route entry for the IP regardless
+# of proto (guest-agent uses proto 66; ansible-added uses proto boot).
+set -euo pipefail
+
+readonly IFACE="{{ ansible_default_ipv4.interface }}"
+
+# Space-separated list of LB IPs, possibly with empty entries (Jinja may emit "").
+readonly LB_IPS=({{ kamailio_external_lb_ip | default('') | quote }} {{ kamailio_internal_lb_ip | default('') | quote }})
+
+for ip in "${LB_IPS[@]}"; do
+  if [ -z "$ip" ]; then
+    continue
+  fi
+  if ip route show table local match "${ip}/32" type local | grep -q .; then
+    echo "route present: local ${ip} dev ${IFACE} scope host"
+  else
+    ip route add local "${ip}" dev "${IFACE}" scope host
+    echo "route added: local ${ip} dev ${IFACE} scope host"
+  fi
+done

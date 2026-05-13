@@ -1,0 +1,14 @@
+[Unit]
+Description=VoIPBin Kamailio forwarded LB IP local-route shim
+Documentation=https://github.com/voipbin/install
+After=network-online.target
+Wants=network-online.target
+Before=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/voipbin-kamailio-lb-routes
+
+[Install]
+WantedBy=multi-user.target
