@@ -45,6 +45,143 @@ def get_project_id() -> Optional[str]:
     return None
 
 
+@dataclass
+class ProjectListing:
+    """A GCP project surfaced for picker selection (PR-V).
+
+    billing_enabled is tri-state:
+      True   — confirmed billing-enabled (safe to deploy)
+      False  — confirmed billing-disabled (terraform_apply will fail)
+      None   — could not determine (permission denied, no billing accounts
+               visible, gcloud beta component missing, etc.)
+    """
+    project_id: str
+    name: str
+    billing_enabled: Optional[bool]
+
+
+def _fetch_billing_map() -> dict[str, bool]:
+    """Build {projectId: billingEnabled} by iterating billing accounts.
+
+    Returns an empty dict on any failure (no billing accounts visible,
+    permission denied, gcloud beta component missing, JSON parse fail).
+    Callers treat absence in the map as `billing_enabled=None`.
+    """
+    accounts_result = run_cmd(
+        ["gcloud", "billing", "accounts", "list",
+         "--format=json", "--filter=open=true"],
+        timeout=15,
+    )
+    if accounts_result.returncode != 0:
+        return {}
+    try:
+        accounts = json.loads(accounts_result.stdout or "[]")
+    except ValueError:
+        return {}
+    if not isinstance(accounts, list):
+        return {}
+
+    billing_map: dict[str, bool] = {}
+    for account in accounts:
+        # account["name"] shape: "billingAccounts/<id>". The --billing-account
+        # flag wants just the <id> portion.
+        full_name = str(account.get("name", ""))
+        if not full_name.startswith("billingAccounts/"):
+            continue
+        account_id = full_name[len("billingAccounts/"):]
+        if not account_id:
+            continue
+
+        projects_result = run_cmd(
+            ["gcloud", "beta", "billing", "projects", "list",
+             f"--billing-account={account_id}", "--format=json"],
+            timeout=20,
+        )
+        if projects_result.returncode != 0:
+            continue  # Skip this account; other accounts may still succeed
+        try:
+            entries = json.loads(projects_result.stdout or "[]")
+        except ValueError:
+            continue
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            # entry shape: {"name": "projects/<id>/billingInfo",
+            #               "projectId": "<id>",
+            #               "billingAccountName": "billingAccounts/<id>",
+            #               "billingEnabled": true}
+            pid = str(entry.get("projectId", ""))
+            if pid:
+                billing_map[pid] = bool(entry.get("billingEnabled", False))
+    return billing_map
+
+
+def _resolve_project_display_name(p: dict) -> str:
+    """Pick the human display name for a project entry, schema-tolerant.
+
+    gcloud projects list v1 (current default in gcloud 472+): the `name`
+    field holds the human display name (e.g., "VoIPBin Dev").
+    Cloud Resource Manager v3: `name` holds the resource path
+    ("projects/<number>") and `displayName` holds the human label.
+
+    Skip `name` when it has the v3 resource-path shape; otherwise use it.
+    Fall back to `displayName` if neither yields a usable string.
+    """
+    nm = p.get("name") or ""
+    dn = p.get("displayName") or ""
+    if nm.startswith("projects/"):
+        return dn or ""
+    return nm or dn or ""
+
+
+def list_active_projects() -> list[ProjectListing]:
+    """Return the ACTIVE GCP projects the operator can see, with billing.
+
+    Implementation:
+      1. ``gcloud projects list --filter=lifecycleState:ACTIVE --format=json``
+         enumerates ACTIVE projects. Empty list on any failure.
+      2. :func:`_fetch_billing_map` builds a {projectId: billingEnabled} map
+         by iterating visible OPEN billing accounts. Each unmapped project
+         gets ``billing_enabled=None`` (rendered as "unknown" in the picker).
+      3. Sort case-insensitively by project_id.
+
+    Never raises. Returns [] on any gcloud failure so the caller can fall
+    back to the text-prompt flow gracefully.
+    """
+    list_result = run_cmd(
+        ["gcloud", "projects", "list",
+         "--filter=lifecycleState:ACTIVE",
+         "--format=json"],
+        timeout=20,
+    )
+    if list_result.returncode != 0:
+        return []
+    try:
+        raw = json.loads(list_result.stdout or "[]")
+    except ValueError:
+        return []
+    if not isinstance(raw, list):
+        return []
+
+    listings = [
+        ProjectListing(
+            project_id=str(p.get("projectId", "")),
+            name=_resolve_project_display_name(p),
+            billing_enabled=None,
+        )
+        for p in raw
+        if p.get("projectId")  # Filter empty projectIds defensively
+    ]
+
+    billing_map = _fetch_billing_map()
+    for listing in listings:
+        if listing.project_id in billing_map:
+            listing.billing_enabled = billing_map[listing.project_id]
+
+    listings.sort(key=lambda lp: lp.project_id.lower())
+    return listings
+
+
 def get_account_email() -> Optional[str]:
     """Get active gcloud account email."""
     result = run_cmd(

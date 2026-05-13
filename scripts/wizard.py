@@ -16,7 +16,7 @@ from scripts.display import (
     prompt_choice,
     prompt_text,
 )
-from scripts.gcp import get_project_id
+from scripts.gcp import get_project_id, list_active_projects
 
 
 def _validate_domain(value: str) -> Optional[str]:
@@ -71,14 +71,63 @@ def run_wizard(existing_config: Optional[dict[str, Any]] = None) -> Optional[dic
         # --- Q1: GCP Project ID ---
         print_header("1. GCP Project ID")
         detected = get_project_id()
-        default_project = defaults.get("gcp_project_id", detected or "")
-        if detected:
-            console.print(f"      [dim]Detected: {detected}[/dim]")
-        project_id = prompt_text(
-            "Enter your GCP project ID",
-            default=default_project,
-            validate_fn=_validate_project_id,
-        )
+        default_project = defaults.get("gcp_project_id") or detected or ""
+
+        # PR-V: Try to list visible ACTIVE projects and offer a numbered
+        # picker. On empty list (no permission / gcloud failure), fall
+        # through to the original text-prompt path so the wizard remains
+        # usable on restricted-IAM hosts.
+        # Print a progress hint because the per-account billing fetch can
+        # take ~20s per billing account in the worst case (iter-2 nit #1).
+        console.print("[dim]      Fetching GCP project list...[/dim]")
+        listings = list_active_projects()
+        project_id = ""
+        if listings:
+            options = []
+            default_idx = 1
+            for i, lp in enumerate(listings, 1):
+                if lp.billing_enabled is True:
+                    billing_str = "billing: yes"
+                elif lp.billing_enabled is False:
+                    billing_str = "billing: no"
+                else:
+                    billing_str = "billing: unknown"
+                # `*` marker reflects the EFFECTIVE numeric default; aligned
+                # with default_idx (NOT raw `detected`) per iter-1 I5.
+                marker = " *" if lp.project_id == default_project else ""
+                options.append({
+                    "id": lp.project_id,
+                    "name": f"{lp.project_id}{marker}",
+                    "note": f"{lp.name} ({billing_str})" if lp.name else billing_str,
+                })
+                if lp.project_id == default_project:
+                    default_idx = i
+            options.append({
+                "id": "__manual__",
+                "name": "Enter manually...",
+                "note": "type a project ID not in the list above",
+            })
+            choice_idx = prompt_choice(
+                "Select your GCP project",
+                options,
+                default=default_idx,
+            )
+            # Read back the selected option's id so a renamed sentinel
+            # (`__manual` vs `__manual__`) is observable in tests
+            # (iter-1 I3 → mutant #6 catchable).
+            selected_id = options[choice_idx - 1]["id"]
+            if selected_id != "__manual__":
+                project_id = selected_id
+
+        # Manual entry fallback: empty list OR operator chose "Enter manually..."
+        if not project_id:
+            if detected:
+                console.print(f"      [dim]Detected: {detected}[/dim]")
+            project_id = prompt_text(
+                "Enter your GCP project ID",
+                default=default_project,
+                validate_fn=_validate_project_id,
+            )
         config["gcp_project_id"] = project_id
 
         # --- Q2: Region ---
