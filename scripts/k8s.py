@@ -133,7 +133,9 @@ def _build_substitution_map(
     domain = config.get("domain", "")
     project_id = config.get("gcp_project_id", "")
     region = config.get("region", "")
-    kamailio_lb_address = config.get("kamailio_internal_lb_address", "")
+    kamailio_lb_address = config.get("kamailio_internal_lb_address", "") or terraform_outputs.get(
+        "kamailio_internal_lb_ip", ""
+    )
     kamailio_lb_name = config.get("kamailio_internal_lb_name", "kamailio-internal-lb")
     cloudsql_private_ip = config.get("cloudsql_private_ip", "")
     cloudsql_private_ip_cidr = config.get("cloudsql_private_ip_cidr", "") or (
