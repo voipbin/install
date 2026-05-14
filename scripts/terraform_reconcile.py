@@ -764,6 +764,9 @@ class TfOutputFieldMapping:
     validator: Callable[[Any], bool] = _always_valid
 
 
+# All entries must be Terraform-owned outputs. Operator-settable config fields
+# must NOT be added here — values are overwritten unconditionally when Terraform
+# emits a differing value.
 # PRs C/D append further entries; PR-G adds the GCS bucket fields below.
 FIELD_MAP: list[TfOutputFieldMapping] = [
     TfOutputFieldMapping(
@@ -799,15 +802,13 @@ def outputs(config: InstallerConfig, tf_outputs: dict[str, Any]) -> bool:
     """Auto-populate select config.yaml fields from Terraform outputs.
 
     Runs AFTER `terraform_apply`. Reads `tf_outputs` (already collected by the
-    pipeline) and writes mapped values into `config.yaml`, skipping any field
-    the operator has already set. Returns True on success.
+    pipeline) and writes mapped values into `config.yaml`. Terraform values are
+    authoritative and overwrite any previously stored value when they differ.
+    Returns True on success.
     """
     if not FIELD_MAP:
         print_step("[dim]No outputs to populate (no fields registered yet).[/dim]")
         return True
-    # PR-E: import at function scope to avoid an unconditional dependency on
-    # scripts.preflight at module import time (preflight imports from diagnosis).
-    from scripts.preflight import CLOUDSQL_PRIVATE_IP_SENTINEL
 
     changed = False
     for mapping in FIELD_MAP:
@@ -817,11 +818,8 @@ def outputs(config: InstallerConfig, tf_outputs: dict[str, Any]) -> bool:
         if not mapping.validator(value):
             print_warning(f"Invalid output for {mapping.tf_key}: {value!r}; skipping.")
             continue
-        # PR-E: overwrite when the current value is the sentinel
-        # (operator upgraded from a previous installer that wrote a
-        # `cloudsql-private.invalid` default into config.yaml).
         current = config.get(mapping.cfg_key)
-        if not current or current == CLOUDSQL_PRIVATE_IP_SENTINEL:
+        if current != value:
             config.set(mapping.cfg_key, value)
             changed = True
     if changed:
