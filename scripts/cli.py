@@ -14,6 +14,7 @@ import click
 from scripts.commands.apply import cmd_apply
 from scripts.commands.cert import (
     cmd_cert_clean_staging,
+    cmd_cert_export_ca,
     cmd_cert_renew,
     cmd_cert_status,
 )
@@ -138,6 +139,21 @@ def cert_clean_staging():
     rc = cmd_cert_clean_staging()
     if rc:
         sys.exit(rc)
+
+
+@cert.command("export-ca")
+@click.option(
+    "--out", "output_path", default=None, metavar="FILE",
+    help="Write CA certificate to FILE instead of stdout.",
+)
+@click.option(
+    "--der", "as_der", is_flag=True, default=False,
+    help="Output DER-encoded bytes (default: PEM). Requires --out when stdout is a TTY.",
+)
+def cert_export_ca(output_path, as_der):
+    """Export the installer-managed CA certificate (self_signed mode only)."""
+    rc = cmd_cert_export_ca(output_path=output_path, as_der=as_der)
+    sys.exit(rc)
 
 
 if __name__ == "__main__":

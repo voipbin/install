@@ -125,6 +125,20 @@ def write_sops_config(kms_key_id: str, config_dir: Path) -> None:
         yaml.safe_dump(sops_config, f, default_flow_style=False)
 
 
+def load_secrets_for_cert(config) -> dict:
+    """Decrypt secrets.yaml via sops and return the dict, or {} if absent.
+
+    ``config`` must have a ``secrets_path`` attribute (InstallerConfig).
+    Kept in secretmgr.py (not pipeline.py) to avoid a pipeline → commands
+    import cycle when ``commands/cert.py`` needs to load secrets.
+    """
+    secrets_path = config.secrets_path
+    if not secrets_path.exists():
+        return {}
+    parsed = decrypt_with_sops(secrets_path)
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def generate_and_encrypt(
     kms_key_id: str,
     secrets_path: Path,
