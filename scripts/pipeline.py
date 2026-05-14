@@ -252,10 +252,21 @@ def _run_ansible(
     # SSH key on the operator's profile. Run this check on the live path
     # only (skip during dry_run since dry_run never opens an SSH connection).
     if not dry_run:
-        from scripts.preflight import check_oslogin_setup
+        from scripts.preflight import (
+            PreflightError,
+            check_cert_provisioned,
+            check_oslogin_setup,
+        )
         err = check_oslogin_setup()
         if err is not None:
             print_error(err)
+            return False
+        # Cert preflight: verify cert_provision ran successfully before
+        # ansible deploys certs to the Kamailio VM.
+        try:
+            check_cert_provisioned()
+        except PreflightError as exc:
+            print_error(str(exc))
             return False
     if dry_run:
         # ansible --check requires SSH to existing VMs; skip gracefully
@@ -454,12 +465,8 @@ def cleanup_cert_staging(workdir: Path) -> None:
 
 def _load_secrets_for_cert_stage(config: InstallerConfig) -> dict[str, Any]:
     """Decrypt secrets.yaml via sops and return the dict, or {} if absent."""
-    from scripts.secretmgr import decrypt_with_sops
-    secrets_path = config.secrets_path
-    if not secrets_path.exists():
-        return {}
-    parsed = decrypt_with_sops(secrets_path)
-    return parsed if isinstance(parsed, dict) else {}
+    from scripts.secretmgr import load_secrets_for_cert
+    return load_secrets_for_cert(config)
 
 
 def _persist_secrets_after_reissue(

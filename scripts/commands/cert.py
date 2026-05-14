@@ -109,6 +109,99 @@ def cmd_cert_renew(force: bool = False) -> int:
     return 0
 
 
+def cmd_cert_export_ca(
+    output_path: str | None = None,
+    as_der: bool = False,
+) -> int:
+    """Export the installer-managed CA certificate to stdout or a file.
+
+    Only valid when cert_state.actual_mode == "self_signed". In manual mode
+    the CA is managed by the operator and is not stored in secrets.yaml.
+    """
+    import base64
+    import binascii
+    import sys as _sys
+
+    state = load_state()
+    cert_state = state.get("cert_state") or {}
+    config = InstallerConfig()
+    if not config.exists():
+        print_error("No configuration found. Run `voipbin-install init` first.")
+        return 1
+    config.load()
+
+    # Mode guard — distinguish "not run" from "wrong mode".
+    actual_mode = cert_state.get("actual_mode")
+    if actual_mode is None:
+        print_error(
+            "cert_provision has not run yet. "
+            "Try: voipbin-install apply"
+        )
+        return 1
+    if actual_mode != "self_signed":
+        print_error(
+            "CA export is only available in self_signed mode. "
+            "In manual mode the CA is managed externally."
+        )
+        return 1
+
+    if not cert_state.get("ca_fingerprint_sha256"):
+        print_error(
+            "cert_state does not contain CA fingerprint — "
+            "cert_provision may not have run. "
+            "Try: voipbin-install cert renew"
+        )
+        return 1
+
+    from scripts.secretmgr import load_secrets_for_cert
+    secrets = load_secrets_for_cert(config)
+    if not secrets:
+        print_error("secrets.yaml not found or empty — cannot export CA.")
+        return 1
+
+    from scripts.tls_bootstrap import KAMAILIO_CA_CERT_KEY
+    ca_cert_b64 = secrets.get(KAMAILIO_CA_CERT_KEY)
+    if not ca_cert_b64:
+        print_error(
+            f"{KAMAILIO_CA_CERT_KEY} not found in secrets — "
+            "cert_provision may not have run. "
+            "Try: voipbin-install cert renew"
+        )
+        return 1
+
+    try:
+        pem_bytes = base64.b64decode(ca_cert_b64)
+    except (binascii.Error, ValueError) as exc:
+        print_error(f"CA cert in secrets is not valid base64: {exc}")
+        return 1
+
+    if as_der:
+        if output_path is None and _sys.stdout.isatty():
+            print_error(
+                "DER output to a terminal is not safe. "
+                "Use --out FILE to write DER, or pipe to a file."
+            )
+            return 1
+        from cryptography import x509
+        from cryptography.hazmat.primitives.serialization import Encoding
+        try:
+            cert_obj = x509.load_pem_x509_certificate(pem_bytes)
+            output_bytes = cert_obj.public_bytes(Encoding.DER)
+        except Exception as exc:
+            print_error(f"Failed to parse CA PEM for DER conversion: {exc}")
+            return 1
+    else:
+        output_bytes = pem_bytes
+
+    if output_path:
+        Path(output_path).write_bytes(output_bytes)
+        print_success(f"CA certificate written to {output_path}")
+    else:
+        _sys.stdout.buffer.write(output_bytes)
+
+    return 0
+
+
 def cmd_cert_clean_staging() -> int:
     staging = INSTALLER_DIR / CERT_STAGING_DIRNAME
     if not staging.exists():

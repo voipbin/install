@@ -464,6 +464,54 @@ def check_kamailio_homer_uri_present(
         )
 
 
+def check_cert_provisioned() -> None:
+    """Raise PreflightError if cert_provision has not run or left incomplete state.
+
+    Called from _run_ansible inside the ``if not dry_run:`` block, so it is
+    never reached on any dry_run path — including the ansible --check path
+    (which only runs when outputs contain kamailio_internal_ips).
+
+    Reads from load_state() only; no config argument needed.
+    """
+    from scripts.pipeline import load_state  # lazy: avoids top-level cycle
+
+    state = load_state()
+    cert_state = state.get("cert_state") or {}
+
+    if not cert_state or not cert_state.get("actual_mode"):
+        raise PreflightError(
+            "cert_provision has not run or failed — cert_state is absent in state.yaml. "
+            "Re-run with: voipbin-install cert renew"
+        )
+
+    mode = cert_state["actual_mode"]
+
+    if mode == "self_signed" and not cert_state.get("ca_fingerprint_sha256"):
+        raise PreflightError(
+            "cert_state.actual_mode=self_signed but CA fingerprint is absent. "
+            "cert_provision may have failed mid-run. "
+            "Re-run with: voipbin-install cert renew"
+        )
+
+    san_list = cert_state.get("san_list") or []
+    leaf_certs = cert_state.get("leaf_certs") or {}
+
+    # Empty san_list is intentionally allowed: cert_provision ran but the
+    # domain has no Kamailio SANs yet. Ansible will deploy no certs (no-op).
+    for san in san_list:
+        if san not in leaf_certs:
+            raise PreflightError(
+                f"cert_provision: leaf cert missing for SAN {san!r}. "
+                "Re-run with: voipbin-install cert renew"
+            )
+        if not leaf_certs[san].get("fingerprint_sha256"):
+            raise PreflightError(
+                f"cert_provision: leaf cert for {san!r} has no fingerprint — "
+                "cert state may be corrupted. "
+                "Re-run with: voipbin-install cert renew"
+            )
+
+
 def run_preflight_display(results: list[PreflightResult]) -> bool:
     """Display preflight results. Returns True if all passed."""
     print_header("Checking prerequisites...")
