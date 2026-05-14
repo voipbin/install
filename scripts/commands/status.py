@@ -153,7 +153,11 @@ def _build_json_status(config: InstallerConfig, state: dict) -> dict:
         "terraform_resource_count": tf_count,
     }
 
-    if deployment_state == "deployed":
+    # Query live GKE/pod resources only when they are likely to exist.
+    # "failed" and "destroy_failed" are included because infra may be partially
+    # or fully up — exactly when an operator needs diagnostic visibility.
+    _LIVE_RESOURCE_STATES = {"deployed", "failed", "destroying", "destroy_failed"}
+    if deployment_state in _LIVE_RESOURCE_STATES:
         result["gke_cluster"] = k8s_cluster_status(config)
         result["pods"] = k8s_status(config)
 
@@ -194,8 +198,12 @@ def cmd_status(as_json: bool = False) -> None:
 
     _print_terraform_status(config)
 
+    # Query live GKE/pod/VM resources only when they are likely to exist.
+    # "failed" and "destroy_failed" are included because infra may be partially
+    # or fully up — exactly when an operator needs diagnostic visibility.
+    _LIVE_RESOURCE_STATES = {"deployed", "failed", "destroying", "destroy_failed"}
     deployment_state = state.get("deployment_state", "") if state else ""
-    if deployment_state == "deployed":
+    if deployment_state in _LIVE_RESOURCE_STATES:
         _print_gke_status(config)
         _print_pod_status(config)
         _print_vm_status(config)

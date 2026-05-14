@@ -175,6 +175,28 @@ class TestStatusSkipsGKEWhenNotDeployed:
         mock_pod.assert_called_once()
         mock_vm.assert_called_once()
 
+    @pytest.mark.parametrize("live_state", ["failed", "destroy_failed", "destroying"])
+    def test_gke_called_when_live_resource_state(self, live_state):
+        """GKE/Pods/VMs must be queried for states where infra may still be alive."""
+        from scripts.commands.status import cmd_status
+
+        state = self._make_state(live_state)
+        with patch("scripts.commands.status.InstallerConfig") as mock_cfg_cls, \
+             patch("scripts.commands.status.load_state", return_value=state), \
+             patch("scripts.commands.status.terraform_resource_count", return_value=0), \
+             patch("scripts.commands.status._print_gke_status") as mock_gke, \
+             patch("scripts.commands.status._print_pod_status") as mock_pod, \
+             patch("scripts.commands.status._print_vm_status") as mock_vm:
+            mock_cfg = mock_cfg_cls.return_value
+            mock_cfg.exists.return_value = True
+            mock_cfg.load.return_value = None
+            mock_cfg.get.side_effect = lambda k, default="": {"gcp_project_id": "proj", "region": "r", "domain": "d"}.get(k, default)
+            cmd_status(as_json=False)
+
+        mock_gke.assert_called_once()
+        mock_pod.assert_called_once()
+        mock_vm.assert_called_once()
+
     def test_json_skips_gke_when_not_deployed(self):
         """_build_json_status must omit gke_cluster/pods keys when not deployed."""
         from scripts.commands.status import _build_json_status
