@@ -148,7 +148,7 @@ to request a quota increase before deploying.
 - A GCP project (or create a new one — the installer validates access and billing)
 - A domain name you control (for DNS records and TLS certificates)
 - The authenticated gcloud user must have **Owner** or **Editor** role on the
-  project, or at minimum the following 13 IAM roles:
+  project, or at minimum the following 12 IAM roles:
 
 | IAM Role | Purpose |
 |----------|---------|
