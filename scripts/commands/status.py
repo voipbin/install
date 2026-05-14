@@ -53,8 +53,8 @@ def _print_terraform_status(config: InstallerConfig) -> None:
     print_header("Terraform")
     try:
         count = terraform_resource_count(config)
-    except Exception:
-        print_warning("Could not read Terraform state")
+    except Exception as exc:
+        print_warning(f"Could not read Terraform state: {exc}")
         return
     if count < 0:
         print_warning("Could not read Terraform state")
@@ -140,11 +140,15 @@ def _print_vm_status(config: InstallerConfig) -> None:
 
 def _build_json_status(config: InstallerConfig, state: dict) -> dict:
     """Build a machine-readable status dict."""
+    try:
+        tf_count = terraform_resource_count(config)
+    except Exception:
+        tf_count = -1
     return {
         "deployment_state": state.get("deployment_state", "unknown"),
         "timestamp": state.get("timestamp", ""),
         "stages": state.get("stages", {}),
-        "terraform_resource_count": terraform_resource_count(config),
+        "terraform_resource_count": tf_count,
         "gke_cluster": k8s_cluster_status(config),
         "pods": k8s_status(config),
     }
