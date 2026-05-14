@@ -36,8 +36,13 @@ def print_banner(*, force: bool = False) -> None:
     piped output) to keep machine-readable output clean.
     Pass force=True to print regardless (e.g. in tests).
     """
-    if not force and not os.isatty(1):
-        return
+    if not force:
+        try:
+            is_tty = os.isatty(1)
+        except OSError:
+            is_tty = False
+        if not is_tty:
+            return
     console.print()
     console.print(_LOGO, highlight=False, markup=False)
     console.print(f"[dim]{_DIVIDER}[/dim]")
