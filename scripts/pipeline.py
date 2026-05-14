@@ -24,11 +24,13 @@ from scripts.display import (
 )
 from scripts.k8s import k8s_apply, k8s_delete, k8s_dry_run
 from scripts.terraform import (
+    TERRAFORM_DIR,
     terraform_apply,
     terraform_destroy,
     terraform_init,
     terraform_output,
     terraform_plan,
+    terraform_state_rm,
 )
 from scripts.terraform_reconcile import imports as _terraform_imports, outputs as _terraform_outputs
 from scripts.utils import INSTALLER_DIR
@@ -51,6 +53,19 @@ APPLY_STAGES = (
 )
 # Ordered stages for destroy (reverse)
 DESTROY_STAGES = ("k8s_delete", "ansible_cleanup", "terraform_destroy")
+
+# Resources detached from TF state before destroy to prevent:
+# - GCS backend loss mid-destroy (state bucket, KMS)
+# - Stale GKE IG manager ID blocking subsequent apply (node pool, kamailio IG)
+# All entries must be bare resource addresses (no module prefix) matching
+# the actual terraform state list output.
+DESTROY_STATE_DETACH = [
+    "google_kms_crypto_key.voipbin_sops_key",
+    "google_kms_key_ring.voipbin_sops",
+    "google_storage_bucket.terraform_state",
+    "google_container_node_pool.voipbin",
+    "google_compute_instance_group.kamailio",
+]
 
 
 # Deprecation message shown when --stage terraform_reconcile is used.
@@ -781,6 +796,12 @@ def destroy_pipeline(
     state["deployment_state"] = "destroying"
     save_state(state)
 
+    # Step 0: Detach protect-and-survive resources from state
+    print_header("Stage: Pre-destroy state detach")
+    ok = terraform_state_rm(DESTROY_STATE_DETACH)
+    if not ok:
+        print_warning("Some resources could not be detached from state; proceeding anyway.")
+
     # Stage 1: K8s delete
     print_header("Stage: Kubernetes Delete")
     k8s_ok = k8s_delete(config)
@@ -790,6 +811,13 @@ def destroy_pipeline(
     # Stage 2: Terraform destroy (covers VMs, Cloud SQL, GKE, networking)
     print_header("Stage: Terraform Destroy")
     tf_ok = terraform_destroy(config, auto_approve=auto_approve)
+
+    # Step 3: Clean up errored.tfstate if present (defensive)
+    errored = TERRAFORM_DIR / "errored.tfstate"
+    if errored.exists():
+        errored.unlink()
+        print_step("Removed errored.tfstate")
+
     if not tf_ok:
         state["deployment_state"] = "destroy_failed"
         save_state(state)
