@@ -51,7 +51,11 @@ def _print_deployment_state(state: dict) -> None:
 def _print_terraform_status(config: InstallerConfig) -> None:
     """Print Terraform resource count."""
     print_header("Terraform")
-    count = terraform_resource_count(config)
+    try:
+        count = terraform_resource_count(config)
+    except Exception:
+        print_warning("Could not read Terraform state")
+        return
     if count < 0:
         print_warning("Could not read Terraform state")
     elif count == 0:
