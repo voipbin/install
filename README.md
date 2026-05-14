@@ -456,7 +456,7 @@ service) or upgrade all 31 bin-*-manager services atomically, see
 
 ## DNS Records
 
-VoIPBin requires 5 DNS A records, each pointing at the reserved static IP
+VoIPBin requires 6 DNS A records, each pointing at the reserved static IP
 for its corresponding Service LoadBalancer. After `apply` completes,
 `./voipbin-install verify` prints the actual IPs assigned. Example:
 
@@ -467,6 +467,7 @@ for its corresponding Service LoadBalancer. After `apply` completes,
 | `admin.<domain>` | `admin` LB (frontend)  | Tenant admin SPA               |
 | `talk.<domain>`  | `talk` LB (frontend)   | Agent talk SPA                 |
 | `meet.<domain>`  | `meet` LB (frontend)   | Audio conference SPA           |
+| `sip.<domain>`   | Kamailio external LB   | SIP/WSS traffic                |
 
 If you chose `dns_mode: auto`, the installer creates the Cloud DNS zone and
 the records automatically; delegate your domain's NS records to GCP. If
@@ -811,23 +812,23 @@ are defined for:
 
 ## Deployment Pipeline
 
-The `apply` command executes a 3-stage pipeline:
+The `apply` command executes an 8-stage pipeline. See the [Pipeline stages](#pipeline-stages) section for the full ordered list. The stages map to these infrastructure concerns:
 
 ```
-Stage 1: Terraform           Stage 2: Ansible           Stage 3: Kubernetes
-========================     ====================       =====================
- VPC + Subnet                 Kamailio VMs               Namespaces
- Cloud NAT + Router            - Docker install           Network Policies
- Firewall Rules                - Docker Compose           Infrastructure
- GKE Cluster + Node Pool      - Config templates           - Redis
- Kamailio VMs                 RTPEngine VMs                - RabbitMQ
- RTPEngine VMs                 - Docker install             - ClickHouse
- Cloud SQL Instance            - Docker Compose             - Cloud SQL Proxy
- Cloud DNS Zone                - Config templates          Backend Services (31)
- Load Balancers                                            VoIP (3 Asterisk)
- KMS Key Ring                                              Frontend (3 apps)
- GCS Buckets                                               Ingress + TLS
- Service Accounts                                          Database Migration
+Terraform stages          Kubernetes stages          Ansible stages
+=====================     ====================       =====================
+ VPC + Subnet              Namespaces                 Kamailio VMs
+ Cloud NAT + Router        Network Policies            - Docker install
+ Firewall Rules            Infrastructure               - Docker Compose
+ GKE Cluster + Node Pool    - Redis                    - Config templates
+ Kamailio VMs               - RabbitMQ                RTPEngine VMs
+ RTPEngine VMs              - ClickHouse               - Docker install
+ Cloud SQL Instance         - Cloud SQL Proxy           - Docker Compose
+ Cloud DNS Zone            Backend Services (31)        - Config templates
+ Load Balancers            VoIP (3 Asterisk)
+ KMS Key Ring              Frontend (3 apps)
+ GCS Buckets               Ingress + TLS
+ Service Accounts          Database Migration
 ```
 
 Terraform state is stored in a GCS bucket (`<project>-voipbin-tf-state`)

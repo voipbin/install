@@ -218,7 +218,7 @@ def verify(check_name):
 
 @cli.group()
 def cert():
-    """Manage Kamailio TLS certificates (PR-Z)."""
+    """Manage Kamailio TLS certificates."""
 
 
 @cert.command("status")
@@ -233,10 +233,15 @@ def cert_status(as_json):
 @cert.command("renew")
 @click.option(
     "--force", is_flag=True,
-    help="Clear state.cert_state.leaf_certs first so short-circuit does not fire",
+    help="Force re-issuance even if certificates are not yet expired",
 )
 def cert_renew(force):
-    """Re-run the cert_provision stage."""
+    """Re-run the cert_provision stage to renew Kamailio TLS certificates.
+
+    Use when certificates have expired, are approaching expiry, or after
+    changing the domain name. With --force, skips the expiry check and
+    always re-issues.
+    """
     rc = cmd_cert_renew(force=force)
     if rc:
         sys.exit(rc)
