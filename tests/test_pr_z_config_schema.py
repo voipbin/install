@@ -36,12 +36,12 @@ class TestConfigSchemaCertMode:
             errors = cfg.validate()
             assert errors == [], errors
 
-    def test_rejects_acme_with_pr_ac_hint(self):
+    def test_rejects_acme_cert_mode(self):
         cfg = _mk_config(cert_mode="acme")
         errors = cfg.validate()
-        assert errors, "expected validation errors"
+        assert errors, "'acme' is not a valid cert_mode; expected validation errors"
         joined = " ".join(errors)
-        assert "PR-AC" in joined
+        assert "not supported" in joined
 
     def test_rejects_unknown_mode(self):
         cfg = _mk_config(cert_mode="bogus", cert_manual_dir=None)

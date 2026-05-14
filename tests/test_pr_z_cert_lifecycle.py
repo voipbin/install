@@ -507,8 +507,8 @@ class TestSeedManualMode:
 # ---------------------------------------------------------------------------
 
 class TestAcmeRejection:
-    def test_acme_raises_with_pr_ac_mention(self):
-        with pytest.raises(CertLifecycleError, match="PR-AC"):
+    def test_acme_mode_raises(self):
+        with pytest.raises(CertLifecycleError, match="not supported"):
             seed_kamailio_certs(
                 {}, {},
                 {"cert_mode": "acme", "domain": DOMAIN},

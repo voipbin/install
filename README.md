@@ -221,6 +221,10 @@ The installer ships with two TLS strategies:
   function detects populated SSL keys and skips its own writes. See
   [BYOC Mode](#byoc-mode) below.
 
+> **Note:** The installer does not automate certificate issuance or renewal.
+> See [Obtaining TLS Certificates](#obtaining-tls-certificates) for how to
+> obtain a CA-issued cert and inject it into the cluster.
+
 After install, verify the cert chain is production-grade with:
 
 ```bash
@@ -230,6 +234,81 @@ After install, verify the cert chain is production-grade with:
 The check inspects all three cert sources (two `voipbin-tls` Secrets +
 `voipbin-secret.SSL_CERT_BASE64`) and fails if any source still serves the
 installer's placeholder cert (Subject CN = `voipbin-self-signed`).
+
+
+## Obtaining TLS Certificates
+
+VoIPBin requires TLS certificates from two independent systems:
+
+| System | Config key | Default | Used by |
+|--------|-----------|---------|---------|
+| Frontend (admin, talk, meet, api, hook) | `tls_strategy` | `self-signed` (hyphen) | nginx sidecars, Go binaries |
+| Kamailio SIP proxy | `cert_mode` | `self_signed` (underscore) | SIP/TLS, SIPS, WebRTC DTLS |
+
+Both systems accept operator-supplied certificates. The installer does **not**
+automate certificate issuance or renewal. Operators are responsible for
+obtaining, renewing, and injecting certificates.
+
+### Option 1 — Let's Encrypt (recommended for production)
+
+Use [Certbot](https://certbot.eff.org/) to obtain a free, publicly trusted
+certificate.
+
+**Prerequisite:** All domain names passed to Certbot must resolve (via DNS A
+records) to the machine running the standalone challenge before you run the
+command. Create DNS records first (see [DNS Records](#dns-records)), wait for
+propagation, then run Certbot.
+
+**Standalone HTTP challenge** (requires port 80 reachable on the Certbot host):
+
+```bash
+certbot certonly --standalone \
+  -d api.example.com \
+  -d hook.example.com \
+  -d admin.example.com \
+  -d talk.example.com \
+  -d meet.example.com
+# Certs written to /etc/letsencrypt/live/api.example.com/
+```
+
+**DNS challenge** (no port 80 required; works with any DNS provider):
+
+```bash
+certbot certonly --manual \
+  --preferred-challenges dns \
+  -d "*.example.com" \
+  -d example.com
+# Follow prompts to add a TXT record at your registrar.
+```
+
+After issuance, follow the [Production Cert Replacement](#production-cert-replacement)
+procedure to inject the cert into the cluster.
+
+**Renewal:** Let's Encrypt certs expire after 90 days. Run `certbot renew`
+before expiry, then re-run the replacement procedure to push the new cert
+into the cluster. The installer does not automate this step.
+
+### Option 2 — Commercial or self-managed CA
+
+Purchase or issue a certificate from any CA. Obtain `fullchain.pem` (leaf +
+intermediates) and `privkey.pem`. Then follow the
+[Production Cert Replacement](#production-cert-replacement) or
+[BYOC Mode](#byoc-mode) procedure.
+
+### Kamailio certificate
+
+Kamailio's cert is separate from the frontend cert. By default the installer
+generates a self-signed CA and issues leaf certs for `sip.<domain>` and
+`registrar.<domain>` (`cert_mode: self_signed`). SIP clients and WebRTC
+browsers must trust this CA — export it with:
+
+```bash
+./voipbin-install cert export-ca --out ca.pem
+```
+
+To use a CA-issued cert for Kamailio instead, set `cert_mode: manual` in
+`config.yaml` and provide per-SAN cert files under `cert_manual_dir`. See
+[cert — Manage Kamailio TLS Certificates](#cert----manage-kamailio-tls-certificates).
 
 
 ## Image Policy
@@ -386,6 +465,22 @@ VM health, GKE cluster, and Kubernetes workloads.
 
 ```bash
 ./voipbin-install status
+```
+
+
+### cert -- Manage Kamailio TLS Certificates
+
+Inspect, renew, and export the installer-managed Kamailio TLS certificates.
+
+```bash
+./voipbin-install cert status                        # Show per-SAN expiry and CA fingerprint
+./voipbin-install cert status --json                 # JSON output
+./voipbin-install cert renew                         # Re-run cert_provision stage
+./voipbin-install cert renew --force                 # Clear cached state and force reissue
+./voipbin-install cert export-ca                     # Print CA certificate to stdout (PEM)
+./voipbin-install cert export-ca --out ca.pem        # Write to file
+./voipbin-install cert export-ca --der --out ca.der  # DER format
+./voipbin-install cert clean-staging                 # Remove temp cert-staging directory
 ```
 
 

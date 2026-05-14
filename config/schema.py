@@ -121,12 +121,13 @@ CONFIG_SCHEMA = {
             "type": "string",
             "enum": ["self_signed", "manual"],
             "description": (
-                "PR-Z: Kamailio TLS cert provisioning mode. "
+                "Kamailio TLS cert provisioning mode. "
                 "'self_signed' (default) — installer generates a CA and "
                 "issues per-SAN leaves on every apply. "
                 "'manual' — operator supplies per-SAN fullchain.pem + "
                 "privkey.pem under cert_manual_dir/<san>/. "
-                "ACME mode is reserved for PR-AC and is not yet supported."
+                "To use a CA-issued cert, set cert_mode=manual and supply "
+                "certs via cert_manual_dir. ACME is not supported."
             ),
         },
         "cert_manual_dir": {
