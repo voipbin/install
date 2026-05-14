@@ -63,8 +63,15 @@ DESTROY_STATE_DETACH = [
     "google_kms_crypto_key.voipbin_sops_key",
     "google_kms_key_ring.voipbin_sops",
     "google_storage_bucket.terraform_state",
+    # GKE leaves a stale Managed Instance Group (MIG) when a node pool is deleted.
+    # Terraform does not track this MIG as part of google_container_node_pool, so
+    # a subsequent apply fails with a stale ID conflict. State-detach forces
+    # terraform to recreate the node pool from scratch on next apply.
+    # NOTE: google_compute_instance_group.kamailio is NOT listed here — it is a
+    # plain unmanaged IG whose lifecycle is fully owned by terraform (destroyed
+    # before VPC in the dependency graph). State-detaching it would leave a GCP
+    # orphan that conflicts with the next apply (wrongNetwork error).
     "google_container_node_pool.voipbin",
-    "google_compute_instance_group.kamailio",
 ]
 
 

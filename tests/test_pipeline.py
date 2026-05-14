@@ -238,14 +238,23 @@ class TestDestroyPipeline:
     """Tests for destroy_pipeline (T-AI-0 through T-AI-3b)."""
 
     def test_tai_0_destroy_state_detach_contents(self):
-        """T-AI-0: DESTROY_STATE_DETACH contains exactly the five expected addresses in order."""
+        """T-AI-0: DESTROY_STATE_DETACH contains exactly the four expected addresses in order.
+
+        PR-AJ: google_compute_instance_group.kamailio removed — it is a plain
+        unmanaged IG whose lifecycle is fully owned by terraform (destroyed before
+        VPC in dependency graph). State-detaching it leaves a GCP orphan that
+        conflicts with the next apply (wrongNetwork error).
+        """
         assert DESTROY_STATE_DETACH == [
             "google_kms_crypto_key.voipbin_sops_key",
             "google_kms_key_ring.voipbin_sops",
             "google_storage_bucket.terraform_state",
             "google_container_node_pool.voipbin",
-            "google_compute_instance_group.kamailio",
         ]
+        assert "google_compute_instance_group.kamailio" not in DESTROY_STATE_DETACH, (
+            "kamailio IG must NOT be in DESTROY_STATE_DETACH — state-detaching it "
+            "leaves a GCP orphan causing wrongNetwork conflict on next apply."
+        )
 
     def test_tai_1_state_rm_called_before_destroy(self, tmp_path, monkeypatch):
         """T-AI-1: destroy_pipeline calls terraform_state_rm before terraform_destroy."""

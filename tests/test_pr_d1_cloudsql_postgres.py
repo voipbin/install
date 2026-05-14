@@ -99,11 +99,18 @@ class TestPostgresInstanceResource:
             "explicit string."
         )
 
-    def test_deletion_protection_true(self):
+    def test_deletion_protection_false(self):
         block = _postgres_instance_block()
-        assert re.search(r'deletion_protection\s*=\s*true', block), (
-            "deletion_protection must default to true. PR-J will introduce "
-            "var.cloudsql_deletion_protection for dev-tier teardown."
+        assert re.search(r'deletion_protection\s*=\s*false', block), (
+            "deletion_protection must be false in install repo "
+            "(destroy workflow enabled; lifecycle ignore_changes prevents drift)."
+        )
+
+    def test_lifecycle_ignore_deletion_protection(self):
+        block = _postgres_instance_block()
+        assert re.search(r'lifecycle\s*\{[^}]*ignore_changes\s*=\s*\[deletion_protection\]', block, re.DOTALL), (
+            "Postgres instance must have lifecycle { ignore_changes = [deletion_protection] } "
+            "so production operators can set true via GCP Console without terraform reverting it."
         )
 
     def test_retained_backups_three(self):

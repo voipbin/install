@@ -30,6 +30,8 @@ resource "google_container_cluster" "voipbin" {
   location = var.gke_type == "regional" ? var.region : var.zone
   project  = var.project_id
 
+  deletion_protection = false
+
   network    = google_compute_network.voipbin.id
   subnetwork = google_compute_subnetwork.voipbin_main.id
 
@@ -66,6 +68,10 @@ resource "google_container_cluster" "voipbin" {
     create = "30m"
     update = "30m"
     delete = "30m"
+  }
+
+  lifecycle {
+    ignore_changes = [deletion_protection]
   }
 
   depends_on = [time_sleep.api_propagation]

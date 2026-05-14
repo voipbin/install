@@ -102,6 +102,13 @@ responsible for all charges incurred on your GCP project.
 deletes all infrastructure including the Cloud SQL database and its backups.
 Export any data you need before destroying.
 
+**deletion_protection is disabled by default.** Cloud SQL instances and the
+GKE cluster are deployed with `deletion_protection = false` to support the
+`./voipbin-install destroy` workflow. Production operators who want to prevent
+accidental deletion can set `deletion_protection = true` via the GCP Console
+or `gcloud` after initial deployment — Terraform will not revert this change
+on subsequent applies (protected by `lifecycle { ignore_changes }`).
+
 **DNS delegation is required.** If you choose `dns_mode: auto`, the installer
 creates a Cloud DNS zone but you must manually update your domain registrar's
 NS records to point to the GCP name servers. DNS propagation can take up to
