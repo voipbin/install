@@ -96,7 +96,7 @@ Run individual stages via `voipbin-install apply --stage <name>`.
 ## Warnings
 
 **This installer creates real GCP resources that cost money.** Estimated
-~$182/mo (zonal) or ~$255/mo (regional) in `us-central1`. Costs vary by
+~$170/mo (zonal) or ~$243/mo (regional) in `us-central1`. Costs vary by
 region. See [Cost Estimates](#cost-estimates) for a full breakdown. You are
 responsible for all charges incurred on your GCP project.
 
@@ -518,19 +518,18 @@ kubectl -n square-manager rollout restart deployment/admin deployment/talk deplo
 
 Operator wants to serve a real cert from the very first install (no
 self-signed phase). Run the install in stages, inject the Secrets between
-`ansible_run` and `k8s_apply`:
+`reconcile_outputs` and `k8s_apply`:
 
 ```bash
 # 1. Run init to write config.yaml + secrets.yaml.
 ./voipbin-install init
 # Edit config.yaml: set tls_strategy: byoc
 
-# 2. Provision infrastructure (everything before k8s_apply).
+# 2. Provision GCP infrastructure (stages 1–4).
 ./voipbin-install apply --stage terraform_init
 ./voipbin-install apply --stage reconcile_imports
 ./voipbin-install apply --stage terraform_apply
 ./voipbin-install apply --stage reconcile_outputs
-./voipbin-install apply --stage ansible_run
 
 # 3. Create both namespaces.
 kubectl create namespace bin-manager
@@ -550,9 +549,11 @@ for ns in bin-manager square-manager; do
     --cert=/tmp/your.crt --key=/tmp/your.key
 done
 
-# 6. Continue install. Bootstrap detects populated SSL keys and skips
-#    its self-signed generation.
+# 6. Continue install (stages 5–8: k8s, cert, ansible).
 ./voipbin-install apply --stage k8s_apply
+./voipbin-install apply --stage reconcile_k8s_outputs
+./voipbin-install apply --stage cert_provision
+./voipbin-install apply --stage ansible_run
 
 # 7. Verify production cert is in place across all 3 sources.
 ./voipbin-install verify --check=tls_cert_is_production
