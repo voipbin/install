@@ -11,7 +11,7 @@ resource "google_sql_database_instance" "voipbin" {
   name                = "${var.env}-mysql"
   database_version    = "MYSQL_8_0"
   region              = var.region
-  deletion_protection = true
+  deletion_protection = false
 
   settings {
     tier              = "db-f1-micro"
@@ -43,6 +43,10 @@ resource "google_sql_database_instance" "voipbin" {
     time_sleep.api_propagation,
     google_service_networking_connection.voipbin,
   ]
+
+  lifecycle {
+    ignore_changes = [deletion_protection]
+  }
 }
 
 # -- MySQL application databases ----------------------------------------------
@@ -146,7 +150,7 @@ resource "google_sql_database_instance" "voipbin_postgres" {
   name                = "${var.env}-postgres"
   database_version    = "POSTGRES_17"
   region              = var.region
-  deletion_protection = true
+  deletion_protection = false
 
   settings {
     tier              = "db-f1-micro"
@@ -184,6 +188,10 @@ resource "google_sql_database_instance" "voipbin_postgres" {
     time_sleep.api_propagation,
     google_service_networking_connection.voipbin,
   ]
+
+  lifecycle {
+    ignore_changes = [deletion_protection]
+  }
 }
 
 # Built-in postgres admin user.

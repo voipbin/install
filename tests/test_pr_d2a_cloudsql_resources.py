@@ -173,6 +173,30 @@ class TestMySQLSslMode:
         )
 
 
+class TestMySQLDeletionProtection:
+    """2 cases — PR-AJ: deletion_protection=false + lifecycle ignore."""
+
+    def test_deletion_protection_false(self):
+        text = _read(CLOUDSQL_TF)
+        body = _extract_resource(text, "google_sql_database_instance", "voipbin")
+        assert re.search(r'deletion_protection\s*=\s*false', body), (
+            "MySQL instance must have deletion_protection=false so that "
+            "voipbin-install destroy can remove it without manual intervention."
+        )
+
+    def test_lifecycle_ignore_deletion_protection(self):
+        text = _read(CLOUDSQL_TF)
+        body = _extract_resource(text, "google_sql_database_instance", "voipbin")
+        assert re.search(
+            r'lifecycle\s*\{[^}]*ignore_changes\s*=\s*\[deletion_protection\]',
+            body,
+            re.DOTALL,
+        ), (
+            "MySQL instance must have lifecycle { ignore_changes = [deletion_protection] } "
+            "so production operators can set true via GCP Console without terraform reverting it."
+        )
+
+
 class TestKamailioroHostPin:
     """2 cases."""
 
