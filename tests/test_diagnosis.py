@@ -105,11 +105,12 @@ def _make_config(project_id="my-project", region="us-central1", zone="us-central
 
 
 class TestRunPreApplyChecks:
+    @patch("scripts.pipeline.load_state", return_value={"deployment_state": "failed"})
     @patch("scripts.diagnosis.check_required_apis", return_value=[])
     @patch("scripts.diagnosis.check_billing_tristate", return_value="enabled")
     @patch("scripts.diagnosis.run_cmd")
     @patch("scripts.diagnosis.check_application_default_credentials", return_value=(True, "u@e.com"))
-    def test_all_pass_returns_true(self, mock_adc, mock_run, mock_bill, mock_apis):
+    def test_all_pass_returns_true(self, mock_adc, mock_run, mock_bill, mock_apis, mock_state):
         mock_run.return_value = MagicMock(returncode=0, stdout="my-project")
         from scripts.diagnosis import run_pre_apply_checks
         assert run_pre_apply_checks(_make_config()) is True
@@ -120,29 +121,32 @@ class TestRunPreApplyChecks:
         from scripts.diagnosis import run_pre_apply_checks
         assert run_pre_apply_checks(_make_config()) is False
 
+    @patch("scripts.pipeline.load_state", return_value={"deployment_state": "failed"})
     @patch("scripts.diagnosis.check_required_apis", return_value=[])
     @patch("scripts.diagnosis.check_billing_tristate", return_value="disabled")
     @patch("scripts.diagnosis.run_cmd")
     @patch("scripts.diagnosis.check_application_default_credentials", return_value=(True, "u@e.com"))
-    def test_billing_disabled_returns_false(self, mock_adc, mock_run, mock_bill, mock_apis):
+    def test_billing_disabled_returns_false(self, mock_adc, mock_run, mock_bill, mock_apis, mock_state):
         mock_run.return_value = MagicMock(returncode=0, stdout="my-project")
         from scripts.diagnosis import run_pre_apply_checks
         assert run_pre_apply_checks(_make_config()) is False
 
+    @patch("scripts.pipeline.load_state", return_value={"deployment_state": "failed"})
     @patch("scripts.diagnosis.check_required_apis", return_value=[])
     @patch("scripts.diagnosis.check_billing_tristate", return_value="unknown")
     @patch("scripts.diagnosis.run_cmd")
     @patch("scripts.diagnosis.check_application_default_credentials", return_value=(True, "u@e.com"))
-    def test_billing_unknown_continues(self, mock_adc, mock_run, mock_bill, mock_apis):
+    def test_billing_unknown_continues(self, mock_adc, mock_run, mock_bill, mock_apis, mock_state):
         mock_run.return_value = MagicMock(returncode=0, stdout="my-project")
         from scripts.diagnosis import run_pre_apply_checks
         assert run_pre_apply_checks(_make_config()) is True
 
+    @patch("scripts.pipeline.load_state", return_value={"deployment_state": "failed"})
     @patch("scripts.diagnosis.check_required_apis", return_value=["sqladmin.googleapis.com"])
     @patch("scripts.diagnosis.check_billing_tristate", return_value="enabled")
     @patch("scripts.diagnosis.run_cmd")
     @patch("scripts.diagnosis.check_application_default_credentials", return_value=(True, "u@e.com"))
-    def test_missing_api_returns_false(self, mock_adc, mock_run, mock_bill, mock_apis):
+    def test_missing_api_returns_false(self, mock_adc, mock_run, mock_bill, mock_apis, mock_state):
         mock_run.return_value = MagicMock(returncode=0, stdout="my-project")
         from scripts.diagnosis import run_pre_apply_checks
         assert run_pre_apply_checks(_make_config()) is False
