@@ -50,8 +50,8 @@ class TestPrintTerraformStatusRobustness:
                     "instead of handling gracefully."
                 )
 
-    def test_negative_return_value_shows_warning(self):
-        """returncode != 0 path: terraform_resource_count returns -1."""
+    def test_negative_return_value_does_not_raise(self):
+        """returncode != 0 path: terraform_resource_count returns -1 — must not raise."""
         from scripts.commands.status import _print_terraform_status
 
         dummy_config = {}
@@ -59,10 +59,10 @@ class TestPrintTerraformStatusRobustness:
             "scripts.commands.status.terraform_resource_count",
             return_value=-1,
         ):
-            _print_terraform_status(dummy_config)  # must not raise
+            _print_terraform_status(dummy_config)
 
-    def test_zero_resources_shows_no_resources(self):
-        """Empty state: terraform_resource_count returns 0."""
+    def test_zero_resources_does_not_raise(self):
+        """Empty state: terraform_resource_count returns 0 — must not raise."""
         from scripts.commands.status import _print_terraform_status
 
         dummy_config = {}
@@ -70,10 +70,10 @@ class TestPrintTerraformStatusRobustness:
             "scripts.commands.status.terraform_resource_count",
             return_value=0,
         ):
-            _print_terraform_status(dummy_config)  # must not raise
+            _print_terraform_status(dummy_config)
 
-    def test_positive_resources_shows_count(self):
-        """Normal path: terraform_resource_count returns a positive int."""
+    def test_positive_resources_does_not_raise(self):
+        """Normal path: terraform_resource_count returns a positive int — must not raise."""
         from scripts.commands.status import _print_terraform_status
 
         dummy_config = {}
@@ -81,7 +81,7 @@ class TestPrintTerraformStatusRobustness:
             "scripts.commands.status.terraform_resource_count",
             return_value=42,
         ):
-            _print_terraform_status(dummy_config)  # must not raise
+            _print_terraform_status(dummy_config)
 
 
 class TestBuildJsonStatusRobustness:
