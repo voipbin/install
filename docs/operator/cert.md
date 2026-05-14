@@ -135,7 +135,11 @@ v7 deploys a single Kamailio replica. The `Recreate kamailio containers` handler
 
 ### Not in scope
 
-- ACME (Let's Encrypt) automation. Tracked under PR-AC. Setting `cert_mode: acme` is rejected at config validation with a message pointing to that PR.
+- ACME (Let's Encrypt) automation. Not supported. Setting `cert_mode: acme`
+  is rejected at config validation. Use `cert_mode=self_signed` or
+  `cert_mode=manual`; see
+  [Obtaining TLS Certificates](../../README.md#obtaining-tls-certificates)
+  for external cert options.
 - HSM/TPM-backed key storage.
 - Certificate Transparency log monitoring.
 - DANE/TLSA records.
@@ -150,7 +154,7 @@ v7 deploys a single Kamailio replica. The `Recreate kamailio containers` handler
 
 ## Troubleshooting
 
-- `cert_provision` failed with "acme cert_mode requires PR-AC": set `cert_mode` back to `self_signed` or `manual`.
+- `cert_provision` failed with "cert_mode=acme is not supported": set `cert_mode` back to `self_signed` or `manual`.
 - `cert_provision` failed with "manual cert layout invalid": ensure `cert_manual_dir/<sip|registrar>.<domain>/{fullchain,privkey}.pem` all exist and parse as PEM.
 - Browser shows certificate warning despite CA install: clear the browser's cert cache (Firefox: about:certs; Chrome: chrome://settings/security) or restart the browser.
 - Kamailio container reports "load_cert failed": run `voipbin-install cert status` to confirm expiry and SAN list match expectations, then `voipbin-install apply --stage cert_provision --force` followed by `--stage ansible_run`.

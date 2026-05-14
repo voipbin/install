@@ -49,7 +49,7 @@ RENEWAL_THRESHOLD_DAYS = 30
 
 class CertLifecycleError(RuntimeError):
     """Raised when the orchestrator cannot proceed (manual-mode layout
-    invalid, ACME requested before PR-AC, bogus cert_mode, etc.)."""
+    invalid, ACME (not supported), bogus cert_mode, etc.)."""
 
 
 @dataclass
@@ -375,7 +375,7 @@ def seed_kamailio_certs(
 
     Returns ``CertLifecycleResult``.
 
-    Raises ``CertLifecycleError`` for: ACME mode (PR-AC), unknown mode,
+    Raises ``CertLifecycleError`` for: ACME mode (not supported), unknown mode,
     manual-mode layout/parse/expiry problems, missing domain.
     """
     if now is None:
@@ -386,7 +386,9 @@ def seed_kamailio_certs(
     mode = config.get("cert_mode") if isinstance(config, dict) else None
     if mode == "acme":
         raise CertLifecycleError(
-            "cert_mode=acme requires PR-AC; for now use self_signed or manual"
+            "cert_mode=acme is not supported. "
+            "Use cert_mode=self_signed or cert_mode=manual. "
+            "For CA-issued certs, see 'Obtaining TLS Certificates' in README.md."
         )
     if mode not in ("self_signed", "manual"):
         raise CertLifecycleError(

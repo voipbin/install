@@ -8,7 +8,9 @@ Operational procedures and reference docs for VoIPBin self-hosting installs.
 
 ## Networking
 
-(Documents land here as they are written.)
+- [TLS certificates](./tls-certificates.md). How to obtain, inject, and renew TLS certificates for the frontend and Kamailio SIP proxy. Includes Let's Encrypt Certbot procedure, cert_mode: manual setup, renewal workflow, and troubleshooting.
+
+(Other networking documents land here as they are written.)
 
 ## Backup and recovery
 
