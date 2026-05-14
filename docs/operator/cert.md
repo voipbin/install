@@ -136,8 +136,8 @@ v7 deploys a single Kamailio replica. The `Recreate kamailio containers` handler
 ### Not in scope
 
 - ACME (Let's Encrypt) automation. Not supported. Setting `cert_mode: acme`
-  is rejected at config validation. Use `cert_mode=self_signed` or
-  `cert_mode=manual`; see
+  is rejected at config validation. Use `cert_mode: self_signed` or
+  `cert_mode: manual`; see
   [Obtaining TLS Certificates](../../README.md#obtaining-tls-certificates)
   for external cert options.
 - HSM/TPM-backed key storage.
