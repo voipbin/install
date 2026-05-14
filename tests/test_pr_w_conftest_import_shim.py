@@ -207,11 +207,13 @@ class TestConftestShim:
         # Check whether system ansible is available in a clean subprocess
         # (without PYTHONPATH set to the repo, so namespace-package lookup
         # does NOT find ansible/ in the repo tree).
+        probe_env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
         probe = subprocess.run(
             [sys.executable, "-c", "import ansible"],
             capture_output=True,
             text=True,
             cwd="/tmp",
+            env=probe_env,
         )
         if probe.returncode != 0:
             pytest.skip(
