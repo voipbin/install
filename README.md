@@ -228,7 +228,7 @@ domain name, DNS mode, and more. On completion it writes `config.yaml`
 ```
 
 Runs the full 8-stage pipeline (Terraform → K8s → cert → Ansible). The pipeline
-is resumable — if a stage fails, fix the issue and re-run `apply`. Use
+is resumable: if a stage fails, fix the issue and re-run `apply`. Use
 `--stage <name>` to re-run a single stage, `--auto-approve` for CI/CD,
 `--dry-run` to preview the Terraform plan.
 
@@ -273,11 +273,11 @@ Run `./voipbin-install <command> --help` for full flag reference.
 
 The installer ships with two TLS strategies selectable during `init`:
 
-- **`self-signed` (default)** — generates a 10-year self-signed cert at first
+- **`self-signed` (default)**: generates a 10-year self-signed cert at first
   `apply` and stores it in Kubernetes Secrets and env-vars consumed by backend
   and frontend Pods. Browsers will reject the cert until replaced. **Replace
   before serving production traffic** using the procedure in the full docs.
-- **`byoc` (Bring Your Own Cert)** — operator pre-creates the Kubernetes
+- **`byoc` (Bring Your Own Cert)**: operator pre-creates the Kubernetes
   Secrets with a CA-issued cert before the `k8s_apply` stage. The bootstrap
   function detects populated SSL keys and skips its own writes.
 
