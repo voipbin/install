@@ -79,14 +79,16 @@ deploys the full Kubernetes workload through a single CLI.
 
 ## Pipeline stages
 
-`voipbin-install apply` runs six stages in order:
+`voipbin-install apply` runs eight stages in order:
 
 1. **terraform_init** — initialize Terraform backend + providers.
 2. **reconcile_imports** — detect GCP resources outside Terraform state and import them. Prevents 409 conflicts on resume.
 3. **terraform_apply** — provision/update GCP infrastructure.
 4. **reconcile_outputs** — read Terraform outputs, auto-populate select config.yaml fields (e.g. private IPs).
-5. **ansible_run** — configure VoIP VMs.
-6. **k8s_apply** — deploy Kubernetes workloads.
+5. **k8s_apply** — deploy Kubernetes workloads.
+6. **reconcile_k8s_outputs** — read Kubernetes load balancer IPs into config.yaml.
+7. **cert_provision** — issue Kamailio TLS certificates.
+8. **ansible_run** — configure Kamailio and RTPEngine VMs.
 
 Run individual stages via `voipbin-install apply --stage <name>`.
 
@@ -204,20 +206,30 @@ Then follow the three-step workflow below.
 
 ### Step 1 — Initialize configuration
 
+Before running `init`, authenticate with GCP:
+
+```bash
+gcloud auth login
+gcloud auth application-default login
+```
+
+Then run the installer wizard:
+
 ```bash
 ./voipbin-install init
 ```
 
 The interactive wizard prompts for:
 
-| Question | Example |
-|----------|---------|
+| Question | Options / Example |
+|----------|------------------|
 | GCP project ID | `my-voipbin-project` |
 | Region | `us-central1` |
 | GKE cluster type | `zonal` (cheaper) or `regional` (HA) |
-| TLS strategy | `self_signed` (auto) or `letsencrypt` or `manual` |
-| Docker image tag | `latest` or a specific version tag |
+| TLS strategy | `self-signed` (auto-managed) or `byoc` (Bring Your Own Cert) |
+| Docker image tag strategy | `latest` or `pinned` (fixed SHA from versions.yaml) |
 | Domain name | `voipbin.example.com` |
+| Kamailio cert mode | `self_signed` (auto) or `manual` (supply cert files yourself) |
 | Cloud DNS mode | `auto` (GCP manages DNS) or `manual` |
 
 After `init` completes, two files are created in the working directory:
@@ -278,8 +290,11 @@ the IP addresses and records to create:
 ```
 DNS Records
   api.voipbin.example.com     A    <load-balancer-ip>
+  hook.voipbin.example.com    A    <load-balancer-ip>
   admin.voipbin.example.com   A    <load-balancer-ip>
-  sip.voipbin.example.com     A    <load-balancer-ip>
+  talk.voipbin.example.com    A    <load-balancer-ip>
+  meet.voipbin.example.com    A    <load-balancer-ip>
+  sip.voipbin.example.com     A    <sip-vm-ip>
 ```
 
 
@@ -581,7 +596,7 @@ Runs health checks against the live deployment. Run after `apply` and DNS propag
 
 ```bash
 ./voipbin-install verify                             # Run all checks
-./voipbin-install verify --check api                 # Run a specific check only
+./voipbin-install verify --check http_health         # Run only the HTTP health check
 ```
 
 ### status -- Show deployment status

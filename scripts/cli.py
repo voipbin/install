@@ -54,12 +54,21 @@ def init(reconfigure, config_path, skip_api_enable, skip_quota_check, dry_run):
     """Initialize VoIPBin configuration and prepare your GCP project.
 
     \b
-    This is the first command to run. It will:
-      - Ask 7 questions interactively (project ID, region, domain, TLS, etc.)
-      - Enable required GCP APIs
-      - Create a service account and IAM bindings
-      - Provision a KMS key ring for secrets encryption
-      - Generate config.yaml and an encrypted secrets.yaml
+    This is the first command to run. Before running init, authenticate with GCP:
+      gcloud auth login
+      gcloud auth application-default login
+
+    \b
+    The wizard prompts for 8 settings:
+      - GCP project ID, region, GKE cluster type
+      - TLS strategy: self-signed (auto) or byoc (Bring Your Own Cert)
+      - Docker image tag strategy: latest or pinned
+      - Domain name
+      - Kamailio cert mode: self_signed or manual
+      - Cloud DNS mode: auto or manual
+    It also enables required GCP APIs, creates a service account and IAM
+    bindings, provisions a KMS key ring for secrets encryption, and writes
+    config.yaml and an encrypted secrets.yaml.
 
     \b
     Examples:
@@ -196,8 +205,8 @@ def verify(check_name):
 
     \b
     Examples:
-      ./voipbin-install verify                  # Run all health checks
-      ./voipbin-install verify --check api      # Run only the API check
+      ./voipbin-install verify                       # Run all health checks
+      ./voipbin-install verify --check http_health   # Run only the HTTP health check
     """
     cmd_verify(check_name=check_name)
 
