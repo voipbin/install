@@ -3,6 +3,7 @@
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -468,3 +469,62 @@ class TestReconcile:
         assert result is True, (
             "reconcile must return True when all registry candidates are absent (fresh install)"
         )
+
+
+# ---------------------------------------------------------------------------
+# T-AG: outputs() overwrite-authoritative behaviour (PR-AG)
+# ---------------------------------------------------------------------------
+
+class TestOutputsOverwriteAuthoritative:
+    def test_tag_ag1_overwrites_non_sentinel_value(self, monkeypatch):
+        """T-AG-1: outputs() with a pre-existing non-sentinel IP value → field IS overwritten."""
+        import scripts.terraform_reconcile as terraform_reconcile
+        mapping = terraform_reconcile.TfOutputFieldMapping(
+            tf_key="cloudsql_mysql_private_ip",
+            cfg_key="cloudsql_private_ip",
+        )
+        monkeypatch.setattr(terraform_reconcile, "FIELD_MAP", [mapping])
+        config = MagicMock()
+        config.get.return_value = "10.99.99.99"  # pre-existing non-sentinel value
+        ok = terraform_reconcile.outputs(config, {"cloudsql_mysql_private_ip": "10.0.0.5"})
+        assert ok is True
+        config.set.assert_called_once_with("cloudsql_private_ip", "10.0.0.5")
+        config.save.assert_called_once()
+
+    def test_tag_ag2_noop_when_value_identical(self, monkeypatch):
+        """T-AG-2: outputs() when TF value equals current value → changed is False, config.save() not called."""
+        import scripts.terraform_reconcile as terraform_reconcile
+        mapping = terraform_reconcile.TfOutputFieldMapping(
+            tf_key="cloudsql_mysql_private_ip",
+            cfg_key="cloudsql_private_ip",
+        )
+        monkeypatch.setattr(terraform_reconcile, "FIELD_MAP", [mapping])
+        config = MagicMock()
+        config.get.return_value = "10.0.0.5"  # same value as TF output
+        ok = terraform_reconcile.outputs(config, {"cloudsql_mysql_private_ip": "10.0.0.5"})
+        assert ok is True
+        config.set.assert_not_called()
+        config.save.assert_not_called()
+
+    def test_tag_ag3_skips_when_tf_value_empty(self, monkeypatch):
+        """T-AG-3: outputs() when TF value is empty/None → field is skipped."""
+        import scripts.terraform_reconcile as terraform_reconcile
+        mapping = terraform_reconcile.TfOutputFieldMapping(
+            tf_key="cloudsql_mysql_private_ip",
+            cfg_key="cloudsql_private_ip",
+        )
+        monkeypatch.setattr(terraform_reconcile, "FIELD_MAP", [mapping])
+        config = MagicMock()
+        config.get.return_value = None
+
+        # Test with None value
+        ok = terraform_reconcile.outputs(config, {"cloudsql_mysql_private_ip": None})
+        assert ok is True
+        config.set.assert_not_called()
+        config.save.assert_not_called()
+
+        # Test with empty string value
+        ok = terraform_reconcile.outputs(config, {"cloudsql_mysql_private_ip": ""})
+        assert ok is True
+        config.set.assert_not_called()
+        config.save.assert_not_called()

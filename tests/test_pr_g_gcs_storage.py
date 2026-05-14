@@ -149,16 +149,16 @@ class TestFieldMap:
         config.set.assert_any_call("tmp_bucket", "t-bkt")
         config.save.assert_called_once()
 
-    def test_outputs_does_not_overwrite_operator_set(self, monkeypatch):
+    def test_outputs_overwrites_stale_operator_set(self, monkeypatch):
         config = MagicMock()
-        # Already populated → outputs() must NOT overwrite.
+        # Already populated with a different value → outputs() MUST overwrite (TF is authoritative).
         config.get.return_value = "operator-bucket"
         ok = terraform_reconcile.outputs(config, {
             "recordings_bucket_name": "r-bkt",
             "tmp_bucket_name": "t-bkt",
         })
         assert ok is True
-        config.set.assert_not_called()
+        config.set.assert_called()
 
     def test_invalid_bucket_name_rejected(self):
         """Validator rejects malformed bucket names — operator slot stays untouched."""

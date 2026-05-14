@@ -98,16 +98,31 @@ class TestReconcileOutputs:
         config.set.assert_not_called()
         config.save.assert_not_called()
 
-    def test_reconcile_outputs_skips_when_config_already_set(self, monkeypatch):
-        """If config slot is already populated, outputs() does NOT overwrite."""
+    def test_reconcile_outputs_overwrites_when_value_differs(self, monkeypatch):
+        """If config slot has a different value, outputs() DOES overwrite."""
         mapping = terraform_reconcile.TfOutputFieldMapping(
             tf_key="kamailio_ip",
             cfg_key="kamailio_ip",
         )
         monkeypatch.setattr(terraform_reconcile, "FIELD_MAP", [mapping])
         config = MagicMock()
-        # Already set
+        # Has a different existing value
         config.get.return_value = "10.0.0.5"
+        ok = terraform_reconcile.outputs(config, {"kamailio_ip": "10.0.0.99"})
+        assert ok is True
+        config.set.assert_called_once_with("kamailio_ip", "10.0.0.99")
+        config.save.assert_called_once()
+
+    def test_reconcile_outputs_noop_when_value_identical(self, monkeypatch):
+        """If config slot already has the same value as TF output, no changes are made."""
+        mapping = terraform_reconcile.TfOutputFieldMapping(
+            tf_key="kamailio_ip",
+            cfg_key="kamailio_ip",
+        )
+        monkeypatch.setattr(terraform_reconcile, "FIELD_MAP", [mapping])
+        config = MagicMock()
+        # Already set to the same value
+        config.get.return_value = "10.0.0.99"
         ok = terraform_reconcile.outputs(config, {"kamailio_ip": "10.0.0.99"})
         assert ok is True
         config.set.assert_not_called()

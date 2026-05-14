@@ -63,8 +63,8 @@ def test_schema_cloudsql_private_ip_marked_deprecated():
     assert "cloudsql_private_ip" not in CONFIG_SCHEMA.get("required", [])
 
 
-def test_reconcile_outputs_skips_when_operator_override():
-    """Operator-set non-sentinel value must not be overwritten."""
+def test_reconcile_outputs_overwrites_stale_operator_value():
+    """Terraform value is authoritative — any pre-existing value is overwritten."""
     from scripts.terraform_reconcile import outputs
 
     cfg = MagicMock()
@@ -79,7 +79,7 @@ def test_reconcile_outputs_skips_when_operator_override():
         "cloudsql_mysql_private_ip_cidr": "10.0.0.5/32",
     }
     outputs(cfg, tf)
-    assert store["cloudsql_private_ip"] == "10.99.99.99"
+    assert store["cloudsql_private_ip"] == "10.0.0.5"
 
 
 def test_reconcile_outputs_overwrites_sentinel():
