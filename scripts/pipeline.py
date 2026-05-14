@@ -715,6 +715,15 @@ def run_pipeline(
             print_step("Resume with: [bold]voipbin-install apply[/bold]")
             return False
 
+        # PR-AF: reload state from disk before marking stage complete.
+        # Some runners (e.g. _run_cert_provision) call save_state() internally
+        # to persist sub-key mutations (cert_state, staging_materialized).
+        # Without this reload the outer save_state below would clobber those
+        # writes because it uses the stale in-memory copy loaded at the top of
+        # run_pipeline — which has no knowledge of what the runner persisted.
+        state = load_state()
+        stages = dict(state.get("stages") or {})
+
         stages[stage_name] = "complete"
         state["stages"] = stages
 
