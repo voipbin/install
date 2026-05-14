@@ -20,7 +20,13 @@ from scripts.utils import _validate_cmd_arg, run_cmd
 
 
 # Covers "NOT FOUND", "NOT_FOUND" (gcloud style), "notfound", "404 Not Found", etc.
-_NOT_FOUND_PHRASES = ("not found", "notfound", "not_found", "does not exist", "404", "no such")
+# Also covers GCP IAM PERMISSION_DENIED for absent service accounts:
+#   "PERMISSION_DENIED: Permission 'iam.serviceAccounts.get' denied on resource
+#    (or it may not exist)."
+# Using the narrower phrase "or it may not exist" rather than "permission_denied"
+# to avoid false-negatives where a resource exists but caller lacks read access.
+_NOT_FOUND_PHRASES = ("not found", "notfound", "not_found", "does not exist", "404", "no such",
+                      "or it may not exist")
 
 
 class ReconcileRegistryError(ValueError):

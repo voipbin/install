@@ -48,6 +48,49 @@ class TestCheckExistsInGcp:
         assert exists is False
         assert ok is True
 
+    def test_gcp_iam_permission_denied_with_may_not_exist_treated_as_not_found(self, monkeypatch):
+        """GCP IAM returns PERMISSION_DENIED + 'or it may not exist' for absent
+        service accounts. Must classify as (exists=False, check_ok=True) so the
+        SA is excluded from imports rather than treated as an unverified conflict.
+        Regression guard for PR-AE fix: wipeout-and-retest fresh-install P0."""
+        monkeypatch.setattr(
+            "scripts.terraform_reconcile.run_cmd",
+            lambda *a, **kw: subprocess.CompletedProcess(
+                [], 1, stdout="",
+                stderr=(
+                    "ERROR: (gcloud.iam.service-accounts.describe) "
+                    "PERMISSION_DENIED: Permission 'iam.serviceAccounts.get' "
+                    "denied on resource (or it may not exist)."
+                ),
+            ),
+        )
+        exists, ok = check_exists_in_gcp(
+            ["gcloud", "iam", "service-accounts", "describe",
+             "sa-voipbin-gke-nodes@voipbin-install-dev.iam.gserviceaccount.com"]
+        )
+        assert exists is False, "SA that does not exist must be reported as absent"
+        assert ok is True, "check must be reported as succeeded (not unverified)"
+
+    def test_gcp_iam_bare_permission_denied_stays_unverified(self, monkeypatch):
+        """A PERMISSION_DENIED message WITHOUT 'or it may not exist' must NOT be
+        classified as not-found — the resource may exist but caller lacks access.
+        It must remain unverified (check_ok=False) so the conflict is surfaced.
+        Regression guard for PR-AE: ensures the fix does not over-broaden to cover
+        all permission errors on existing resources."""
+        monkeypatch.setattr(
+            "scripts.terraform_reconcile.run_cmd",
+            lambda *a, **kw: subprocess.CompletedProcess(
+                [], 1, stdout="",
+                stderr="ERROR: PERMISSION_DENIED: Permission denied on resource.",
+            ),
+        )
+        exists, ok = check_exists_in_gcp(
+            ["gcloud", "iam", "service-accounts", "describe",
+             "sa-existing@voipbin-install-dev.iam.gserviceaccount.com"]
+        )
+        assert exists is False, "resource not confirmed to exist"
+        assert ok is False, "bare PERMISSION_DENIED must remain unverified"
+
 
 class TestImportResource:
     def test_returns_true_on_success(self, monkeypatch):
@@ -390,3 +433,38 @@ class TestReconcile:
         assert result is False
         assert any("exist in GCP" in w for w in warnings), "verified-count warning must fire"
         assert any("could not be verified" in w for w in warnings), "unverified-count warning must fire"
+
+    def test_fresh_install_sa_gcp_iam_permission_denied_not_treated_as_conflict(self, monkeypatch):
+        """Regression guard for PR-AE: on a fresh install where SAs do not yet exist,
+        GCP IAM returns PERMISSION_DENIED + 'or it may not exist'. reconcile must
+        return True without attempting import of SA resources.
+
+        Before PR-AE, check_exists_in_gcp returned (False, False) for this stderr,
+        causing SA entries to be treated as unverified conflicts, which then failed
+        terraform import with 'Cannot import non-existent remote object'.
+
+        NOTE: patches run_cmd (not check_exists_in_gcp) so that _NOT_FOUND_PHRASES
+        is actually exercised — required for synthetic injection proof to be valid."""
+        import subprocess as sp
+
+        def fake_run_cmd(argv, **kwargs):
+            # Simulate: SA gcloud check → PERMISSION_DENIED with "or it may not exist"
+            if "service-accounts" in argv and "describe" in argv:
+                return sp.CompletedProcess(
+                    argv, 1, stdout="",
+                    stderr=(
+                        "ERROR: (gcloud.iam.service-accounts.describe) "
+                        "PERMISSION_DENIED: Permission 'iam.serviceAccounts.get' "
+                        "denied on resource (or it may not exist)."
+                    ),
+                )
+            # All other resource checks: standard not-found
+            return sp.CompletedProcess(argv, 1, stdout="", stderr="ERROR: Resource not found.")
+
+        monkeypatch.setattr("scripts.terraform_reconcile.terraform_state_list", lambda cfg: set())
+        monkeypatch.setattr("scripts.terraform_reconcile.run_cmd", fake_run_cmd)
+
+        result = reconcile(self._make_config(), auto_approve=True)
+        assert result is True, (
+            "reconcile must return True when all registry candidates are absent (fresh install)"
+        )
