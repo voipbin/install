@@ -1,5 +1,6 @@
 """Rich TUI display helpers for VoIPBin installer."""
 
+import os
 from typing import Optional, Sequence
 
 from rich.console import Console
@@ -10,14 +11,41 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 
 console = Console()
 
-BANNER_TEXT = (
-    "[bold cyan]VoIPBin[/bold cyan] [dim]Installer[/dim]"
-)
+# ASCII art logo (matches the README header)
+_LOGO = """\
+          ████████          
+   ██████████████████████    __     __   ___ ____  ____  _
+  ██                    ██   \\ \\   / /__|_ _|  _ \\| __ )(_)_ __
+ ██████████████████████████   \\ \\ / / _ \\| || |_) |  _ \\| | '_ \\
+ ██                      ██    \\ V / (_) | ||  __/| |_) | | | | |
+  ██    ██   ██   ██    ██      \\_/ \\___/___|_|   |____/|_|_| |_|
+  ██    ██   ██   ██    ██          Connect & Collaborate for all
+  ██    ██   ██   ██    ██                I N S T A L L E R
+  ██    ██   ██   ██    ██  
+   ██   ██   ██   ██   ██   
+   ██████████████████████   \
+"""
+
+_DIVIDER = "━" * 75
 
 
-def print_banner() -> None:
+def print_banner(*, force: bool = False) -> None:
+    """Print the VoIPBin ASCII logo banner to the terminal.
+
+    Skipped automatically when stdout is not a TTY (e.g. CI pipelines,
+    piped output) to keep machine-readable output clean.
+    Pass force=True to print regardless (e.g. in tests).
+    """
+    if not force:
+        try:
+            is_tty = os.isatty(1)
+        except OSError:
+            is_tty = False
+        if not is_tty:
+            return
     console.print()
-    console.print(Panel(BANNER_TEXT, expand=False, border_style="cyan"))
+    console.print(_LOGO, highlight=False, markup=False)
+    console.print(f"[dim]{_DIVIDER}[/dim]")
     console.print()
 
 

@@ -6,7 +6,7 @@ from unittest.mock import patch
 from rich.console import Console
 
 from scripts.display import (
-    BANNER_TEXT,
+    _LOGO,
     create_progress,
     print_banner,
     print_check,
@@ -82,11 +82,11 @@ class TestPrintResultBox:
 
 class TestPrintBanner:
     def test_banner_renders(self):
-        output = _capture_output(print_banner)
-        assert "VoIPBin" in output or "Installer" in output
+        output = _capture_output(print_banner, force=True)
+        assert "VoIPBin" in output or "INSTALLER" in output or "I N S T A L L E R" in output
 
-    def test_banner_text_constant(self):
-        assert "VoIPBin" in BANNER_TEXT
+    def test_logo_constant_contains_installer_text(self):
+        assert "I N S T A L L E R" in _LOGO
 
 
 class TestCreateProgress:
