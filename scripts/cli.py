@@ -26,7 +26,8 @@ from scripts.commands.verify import cmd_verify
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 @click.version_option(version="1.0.0", prog_name="voipbin-install")
-def cli():
+@click.pass_context
+def cli(ctx):
     """VoIPBin Installer — deploy a full CPaaS platform to GCP.
 
     \b
@@ -42,6 +43,11 @@ def cli():
 
     Run any command with --help for detailed options.
     """
+    # Print the ASCII banner before every subcommand (skipped when stdout is
+    # not a TTY, e.g. CI pipelines or piped output).
+    if ctx.invoked_subcommand is not None:
+        from scripts.display import print_banner
+        print_banner()
 
 
 @cli.command("help", hidden=True)
