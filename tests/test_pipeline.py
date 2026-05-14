@@ -2,7 +2,7 @@
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -10,6 +10,7 @@ import yaml
 
 from scripts.pipeline import (
     APPLY_STAGES,
+    DESTROY_STATE_DETACH,
     STAGE_LABELS,
     STAGE_RUNNERS,
     _initial_stages_state,
@@ -230,4 +231,161 @@ class TestRunPipelineStateClobber:
         final = load_state()
         assert final.get("stages", {}).get("cert_provision") == "complete", (
             "cert_provision stage must be marked 'complete' in state after PR-AF reload"
+        )
+
+
+class TestDestroyPipeline:
+    """Tests for destroy_pipeline (T-AI-0 through T-AI-3b)."""
+
+    def test_tai_0_destroy_state_detach_contents(self):
+        """T-AI-0: DESTROY_STATE_DETACH contains exactly the five expected addresses in order."""
+        assert DESTROY_STATE_DETACH == [
+            "google_kms_crypto_key.voipbin_sops_key",
+            "google_kms_key_ring.voipbin_sops",
+            "google_storage_bucket.terraform_state",
+            "google_container_node_pool.voipbin",
+            "google_compute_instance_group.kamailio",
+        ]
+
+    def test_tai_1_state_rm_called_before_destroy(self, tmp_path, monkeypatch):
+        """T-AI-1: destroy_pipeline calls terraform_state_rm before terraform_destroy."""
+        from scripts.pipeline import destroy_pipeline
+
+        state_file = tmp_path / ".voipbin-state.yaml"
+        monkeypatch.setattr("scripts.pipeline.STATE_FILE", state_file)
+
+        call_order = []
+
+        def mock_state_rm(resources):
+            call_order.append("terraform_state_rm")
+            return True
+
+        def mock_k8s_delete(config):
+            call_order.append("k8s_delete")
+            return True
+
+        def mock_tf_destroy(config, auto_approve=False):
+            call_order.append("terraform_destroy")
+            return True
+
+        monkeypatch.setattr("scripts.pipeline.terraform_state_rm", mock_state_rm)
+        monkeypatch.setattr("scripts.pipeline.k8s_delete", mock_k8s_delete)
+        monkeypatch.setattr("scripts.pipeline.terraform_destroy", mock_tf_destroy)
+        monkeypatch.setattr("scripts.pipeline.TERRAFORM_DIR", tmp_path)
+
+        config = MagicMock()
+        destroy_pipeline(config, auto_approve=True)
+
+        assert call_order.index("terraform_state_rm") < call_order.index("terraform_destroy"), (
+            "terraform_state_rm must be called before terraform_destroy"
+        )
+
+    def test_tai_2_destroy_continues_when_state_rm_fails(self, tmp_path, monkeypatch):
+        """T-AI-2: destroy_pipeline calls terraform_destroy even when terraform_state_rm returns False."""
+        from scripts.pipeline import destroy_pipeline
+
+        state_file = tmp_path / ".voipbin-state.yaml"
+        monkeypatch.setattr("scripts.pipeline.STATE_FILE", state_file)
+
+        tf_destroy_called = []
+
+        def mock_state_rm(resources):
+            return False  # State rm failed
+
+        def mock_k8s_delete(config):
+            return True
+
+        def mock_tf_destroy(config, auto_approve=False):
+            tf_destroy_called.append(True)
+            return True  # destroy succeeds
+
+        monkeypatch.setattr("scripts.pipeline.terraform_state_rm", mock_state_rm)
+        monkeypatch.setattr("scripts.pipeline.k8s_delete", mock_k8s_delete)
+        monkeypatch.setattr("scripts.pipeline.terraform_destroy", mock_tf_destroy)
+        monkeypatch.setattr("scripts.pipeline.TERRAFORM_DIR", tmp_path)
+
+        config = MagicMock()
+        result = destroy_pipeline(config, auto_approve=True)
+
+        assert tf_destroy_called, "terraform_destroy must be called even when state_rm returns False"
+        assert result is True, "return value must be from terraform_destroy (True)"
+
+    def test_tai_2_return_value_from_tf_destroy(self, tmp_path, monkeypatch):
+        """T-AI-2 (failure variant): return value comes from terraform_destroy, not state_rm."""
+        from scripts.pipeline import destroy_pipeline
+
+        state_file = tmp_path / ".voipbin-state.yaml"
+        monkeypatch.setattr("scripts.pipeline.STATE_FILE", state_file)
+
+        monkeypatch.setattr("scripts.pipeline.terraform_state_rm", lambda r: False)
+        monkeypatch.setattr("scripts.pipeline.k8s_delete", lambda c: True)
+        monkeypatch.setattr("scripts.pipeline.terraform_destroy", lambda c, auto_approve=False: False)
+        monkeypatch.setattr("scripts.pipeline.TERRAFORM_DIR", tmp_path)
+
+        config = MagicMock()
+        result = destroy_pipeline(config, auto_approve=True)
+        assert result is False, "return value must be False when terraform_destroy returns False"
+
+    def test_tai_3_errored_tfstate_removed_if_exists(self, tmp_path, monkeypatch):
+        """T-AI-3 (file exists): errored.tfstate is removed after destroy."""
+        from scripts.pipeline import destroy_pipeline
+
+        state_file = tmp_path / ".voipbin-state.yaml"
+        monkeypatch.setattr("scripts.pipeline.STATE_FILE", state_file)
+        monkeypatch.setattr("scripts.pipeline.TERRAFORM_DIR", tmp_path)
+
+        # Create the errored.tfstate file
+        errored = tmp_path / "errored.tfstate"
+        errored.write_text("{}")
+
+        monkeypatch.setattr("scripts.pipeline.terraform_state_rm", lambda r: True)
+        monkeypatch.setattr("scripts.pipeline.k8s_delete", lambda c: True)
+        monkeypatch.setattr("scripts.pipeline.terraform_destroy", lambda c, auto_approve=False: True)
+
+        config = MagicMock()
+        destroy_pipeline(config, auto_approve=True)
+
+        assert not errored.exists(), "errored.tfstate must be removed after destroy"
+
+    def test_tai_3_no_error_when_errored_tfstate_absent(self, tmp_path, monkeypatch):
+        """T-AI-3 (file absent): no error raised when errored.tfstate does not exist."""
+        from scripts.pipeline import destroy_pipeline
+
+        state_file = tmp_path / ".voipbin-state.yaml"
+        monkeypatch.setattr("scripts.pipeline.STATE_FILE", state_file)
+        monkeypatch.setattr("scripts.pipeline.TERRAFORM_DIR", tmp_path)
+
+        monkeypatch.setattr("scripts.pipeline.terraform_state_rm", lambda r: True)
+        monkeypatch.setattr("scripts.pipeline.k8s_delete", lambda c: True)
+        monkeypatch.setattr("scripts.pipeline.terraform_destroy", lambda c, auto_approve=False: True)
+
+        config = MagicMock()
+        # Should not raise FileNotFoundError
+        result = destroy_pipeline(config, auto_approve=True)
+        assert result is True
+
+    def test_tai_3b_destroy_failed_state_after_errored_cleanup(self, tmp_path, monkeypatch):
+        """T-AI-3b: On failure path, deployment_state is 'destroy_failed' after errored.tfstate cleanup."""
+        from scripts.pipeline import destroy_pipeline, load_state
+
+        state_file = tmp_path / ".voipbin-state.yaml"
+        monkeypatch.setattr("scripts.pipeline.STATE_FILE", state_file)
+        monkeypatch.setattr("scripts.pipeline.TERRAFORM_DIR", tmp_path)
+
+        # Create errored.tfstate
+        errored = tmp_path / "errored.tfstate"
+        errored.write_text("{}")
+
+        monkeypatch.setattr("scripts.pipeline.terraform_state_rm", lambda r: True)
+        monkeypatch.setattr("scripts.pipeline.k8s_delete", lambda c: True)
+        monkeypatch.setattr("scripts.pipeline.terraform_destroy", lambda c, auto_approve=False: False)
+
+        config = MagicMock()
+        result = destroy_pipeline(config, auto_approve=True)
+
+        assert result is False
+        assert not errored.exists(), "errored.tfstate must be removed even on failure path"
+        state = load_state()
+        assert state.get("deployment_state") == "destroy_failed", (
+            "deployment_state must be 'destroy_failed' on terraform_destroy failure"
         )

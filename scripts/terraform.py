@@ -135,3 +135,25 @@ def terraform_state_list(config: InstallerConfig) -> set[str]:
     if result.returncode != 0:
         return set()
     return {line for line in result.stdout.splitlines() if line.strip()}
+
+
+def terraform_state_rm(resources: list[str]) -> bool:
+    """Detach resources from terraform state before destroy.
+
+    Runs per-resource so a missing address does not block others.
+    Returns True if all resources were detached or were not in state.
+    Returns False if any resource produced an unexpected error.
+    """
+    all_ok = True
+    for addr in resources:
+        cmd = ["terraform", f"-chdir={TERRAFORM_DIR}", "state", "rm", addr]
+        result = run_cmd(cmd, capture=True, timeout=60)
+        if result.returncode == 0:
+            continue
+        combined = (result.stdout or "") + (result.stderr or "")
+        if "No matching objects found" in combined:
+            # Resource not in state — treat as success (idempotent)
+            continue
+        print_error(f"terraform state rm {addr} failed: {combined.strip()}")
+        all_ok = False
+    return all_ok
