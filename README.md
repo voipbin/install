@@ -281,8 +281,8 @@ The installer ships with two TLS strategies selectable during `init`:
   Secrets with a CA-issued cert before the `k8s_apply` stage. The bootstrap
   function detects populated SSL keys and skips its own writes.
 
-For step-by-step cert replacement, Let's Encrypt setup, and BYOC mode
-instructions, see https://docs.voipbin.net/self-hosting.
+For step-by-step cert replacement, BYOC mode, and cert management,
+see https://docs.voipbin.net/self-hosting.
 
 
 ## Configuration
