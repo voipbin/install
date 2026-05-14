@@ -193,7 +193,7 @@ def cmd_cert_export_ca(
     else:
         output_bytes = pem_bytes
 
-    if output_path:
+    if output_path is not None:
         Path(output_path).write_bytes(output_bytes)
         print_success(f"CA certificate written to {output_path}")
     else:
