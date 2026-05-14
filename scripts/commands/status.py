@@ -144,14 +144,20 @@ def _build_json_status(config: InstallerConfig, state: dict) -> dict:
         tf_count = terraform_resource_count(config)
     except Exception:
         tf_count = -1
-    return {
-        "deployment_state": state.get("deployment_state", "unknown"),
+
+    deployment_state = state.get("deployment_state", "unknown")
+    result: dict = {
+        "deployment_state": deployment_state,
         "timestamp": state.get("timestamp", ""),
         "stages": state.get("stages", {}),
         "terraform_resource_count": tf_count,
-        "gke_cluster": k8s_cluster_status(config),
-        "pods": k8s_status(config),
     }
+
+    if deployment_state == "deployed":
+        result["gke_cluster"] = k8s_cluster_status(config)
+        result["pods"] = k8s_status(config)
+
+    return result
 
 
 def cmd_status(as_json: bool = False) -> None:
@@ -187,7 +193,11 @@ def cmd_status(as_json: bool = False) -> None:
         print_step("Not yet deployed")
 
     _print_terraform_status(config)
-    _print_gke_status(config)
-    _print_pod_status(config)
-    _print_vm_status(config)
+
+    deployment_state = state.get("deployment_state", "") if state else ""
+    if deployment_state == "deployed":
+        _print_gke_status(config)
+        _print_pod_status(config)
+        _print_vm_status(config)
+
     console.print()
