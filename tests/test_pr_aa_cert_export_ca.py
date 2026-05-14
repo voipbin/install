@@ -79,31 +79,6 @@ def _make_secrets() -> dict:
     return {KAMAILIO_CA_CERT_KEY: _CA_B64}
 
 
-def _ctx(
-    cert_state=None,
-    secrets=None,
-    config_exists=True,
-    stdout_is_tty=False,
-):
-    """Context manager stack for cmd_cert_export_ca tests."""
-    if cert_state is None:
-        cert_state = _self_signed_cert_state()
-    if secrets is None:
-        secrets = _make_secrets()
-
-    state = {"cert_state": cert_state}
-    mock_cfg = MagicMock()
-    mock_cfg.exists.return_value = config_exists
-
-    return (
-        patch("scripts.commands.cert.load_state", return_value=state),
-        patch("scripts.commands.cert.InstallerConfig", return_value=mock_cfg),
-        patch("scripts.secretmgr.load_secrets_for_cert", return_value=secrets),
-        patch("scripts.commands.cert.load_secrets_for_cert", return_value=secrets),
-        patch("sys.stdout", new_callable=lambda: lambda: _make_stdout(stdout_is_tty)),
-    )
-
-
 def _make_stdout(is_tty: bool):
     """Return a mock stdout with controllable isatty()."""
     m = MagicMock()

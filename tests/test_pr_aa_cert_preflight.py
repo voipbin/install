@@ -182,7 +182,7 @@ class TestRunAnsibleWiring:
         from scripts.pipeline import _run_ansible
 
         config = self._make_config()
-        outputs = {"kamailio_internal_ips": ["10.0.0.1"]}
+        outputs = {"kamailio_internal_ips": ["192.0.2.1"]}  # RFC 5737 documentation range
 
         with (
             patch("scripts.preflight.check_oslogin_setup", return_value=None),
