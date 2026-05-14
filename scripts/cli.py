@@ -58,8 +58,8 @@ def cli_help(ctx, command):
             click.echo(cmd.get_help(sub_ctx))
     else:
         # No subcommand given — show the top-level help
-        root_ctx = click.Context(cli, info_name="voipbin-install")
-        click.echo(cli.get_help(root_ctx))
+        with click.Context(cli, info_name="voipbin-install") as root_ctx:
+            click.echo(cli.get_help(root_ctx))
 
 
 @cli.command()
