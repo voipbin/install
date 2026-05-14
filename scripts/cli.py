@@ -24,7 +24,7 @@ from scripts.commands.status import cmd_status
 from scripts.commands.verify import cmd_verify
 
 
-@click.group()
+@click.group(context_settings={"help_option_names": ["-h", "--help"]})
 @click.version_option(version="1.0.0", prog_name="voipbin-install")
 def cli():
     """VoIPBin Installer — deploy a full CPaaS platform to GCP.
@@ -42,6 +42,24 @@ def cli():
 
     Run any command with --help for detailed options.
     """
+
+
+@cli.command("help", hidden=True)
+@click.argument("command", required=False)
+@click.pass_context
+def cli_help(ctx, command):
+    """Show help for a command (alias: --help)."""
+    if command:
+        cmd = cli.get_command(ctx, command)
+        if cmd is None:
+            click.echo(f"Error: No such command '{command}'.", err=True)
+            sys.exit(1)
+        with click.Context(cmd, info_name=f"voipbin-install {command}") as sub_ctx:
+            click.echo(cmd.get_help(sub_ctx))
+    else:
+        # No subcommand given — show the top-level help
+        root_ctx = click.Context(cli, info_name="voipbin-install")
+        click.echo(cli.get_help(root_ctx))
 
 
 @cli.command()
@@ -92,7 +110,7 @@ def init(reconfigure, config_path, skip_api_enable, skip_quota_check, dry_run):
 @click.option(
     "--force-destroy-legacy-voipbin",
     is_flag=True,
-    help="Opt in to destroying the legacy PR-D1 `voipbin` MySQL database during PR-D2 apply",
+    help="Destroy the legacy 'voipbin' MySQL database during apply (use only when migrating from an older installation)",
 )
 @click.option(
     "--stage",
@@ -105,7 +123,7 @@ def init(reconfigure, config_path, skip_api_enable, skip_quota_check, dry_run):
         "reconcile_k8s_outputs",
         "cert_provision",
         "ansible_run",
-        "terraform_reconcile",  # deprecated alias — expands to both new stages
+        "terraform_reconcile",  # deprecated alias — expands to both reconcile stages
     ]),
     default=None,
     help="Run only a specific pipeline stage",
@@ -212,7 +230,7 @@ def verify(check_name):
 
 
 # ---------------------------------------------------------------------------
-# PR-Z cert subcommand group
+# cert subcommand group
 # ---------------------------------------------------------------------------
 
 
@@ -249,7 +267,7 @@ def cert_renew(force):
 
 @cert.command("clean-staging")
 def cert_clean_staging():
-    """Remove <workdir>/.cert-staging/ if present."""
+    """Remove the temporary cert-staging directory if present."""
     rc = cmd_cert_clean_staging()
     if rc:
         sys.exit(rc)
@@ -271,4 +289,6 @@ def cert_export_ca(output_path, as_der):
 
 
 if __name__ == "__main__":
-    cli()
+    # Set prog_name so Usage/error messages show 'voipbin-install' regardless
+    # of how the script is invoked (direct or via the bash wrapper).
+    cli(prog_name="voipbin-install")
