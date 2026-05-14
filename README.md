@@ -79,14 +79,16 @@ deploys the full Kubernetes workload through a single CLI.
 
 ## Pipeline stages
 
-`voipbin-install apply` runs six stages in order:
+`voipbin-install apply` runs eight stages in order:
 
 1. **terraform_init** — initialize Terraform backend + providers.
 2. **reconcile_imports** — detect GCP resources outside Terraform state and import them. Prevents 409 conflicts on resume.
 3. **terraform_apply** — provision/update GCP infrastructure.
 4. **reconcile_outputs** — read Terraform outputs, auto-populate select config.yaml fields (e.g. private IPs).
-5. **ansible_run** — configure VoIP VMs.
-6. **k8s_apply** — deploy Kubernetes workloads.
+5. **k8s_apply** — deploy Kubernetes workloads.
+6. **reconcile_k8s_outputs** — read Kubernetes load balancer IPs into config.yaml.
+7. **cert_provision** — issue Kamailio TLS certificates.
+8. **ansible_run** — configure Kamailio and RTPEngine VMs.
 
 Run individual stages via `voipbin-install apply --stage <name>`.
 
@@ -94,7 +96,7 @@ Run individual stages via `voipbin-install apply --stage <name>`.
 ## Warnings
 
 **This installer creates real GCP resources that cost money.** Estimated
-~$182/mo (zonal) or ~$255/mo (regional) in `us-central1`. Costs vary by
+~$170/mo (zonal) or ~$243/mo (regional) in `us-central1`. Costs vary by
 region. See [Cost Estimates](#cost-estimates) for a full breakdown. You are
 responsible for all charges incurred on your GCP project.
 
@@ -190,24 +192,149 @@ The `init` command automatically enables these 16 APIs on your project:
 
 ```bash
 # Clone the repository
-git clone git@github.com:voipbin/install.git
+git clone https://github.com/voipbin/install.git
 cd install
 
 # Install Python dependencies
 pip install -r requirements.txt
+```
 
-# Step 1: Initialize configuration (interactive wizard)
+Then follow the three-step workflow below.
+
+
+## Step-by-Step Usage Guide
+
+### Step 1 — Initialize configuration
+
+Before running `init`, authenticate with GCP:
+
+```bash
+gcloud auth login
+gcloud auth application-default login
+```
+
+Then run the installer wizard:
+
+```bash
 ./voipbin-install init
+```
 
-# Step 2: Deploy infrastructure and services
+The interactive wizard prompts for:
+
+| Question | Options / Example |
+|----------|------------------|
+| GCP project ID | `my-voipbin-project` |
+| Region | `us-central1` |
+| GKE cluster type | `zonal` (cheaper) or `regional` (HA) |
+| TLS strategy | `self-signed` (auto-managed) or `byoc` (Bring Your Own Cert) |
+| Docker image tag strategy | `latest` or `pinned` (fixed SHA from versions.yaml) |
+| Domain name | `voipbin.example.com` |
+| Kamailio cert mode | `self_signed` (auto) or `manual` (supply cert files yourself) |
+| Cloud DNS mode | `auto` (GCP manages DNS) or `manual` |
+
+After `init` completes, two files are created in the working directory:
+- **`config.yaml`** — non-sensitive configuration (safe to commit)
+- **`secrets.yaml`** — SOPS-encrypted secrets (safe to commit; requires KMS to decrypt)
+
+**Re-run wizard to change settings:**
+```bash
+./voipbin-install init --reconfigure
+```
+
+**Preview what init would do without making changes:**
+```bash
+./voipbin-install init --dry-run
+```
+
+
+### Step 2 — Deploy infrastructure
+
+```bash
 ./voipbin-install apply
+```
 
-# Step 3: Check deployment health
+This runs the full 8-stage deployment pipeline:
+
+| Stage | What it does |
+|-------|-------------|
+| `terraform_init` | Initialize Terraform backend (GCS state bucket) |
+| `reconcile_imports` | Import any pre-existing GCP resources into Terraform state |
+| `terraform_apply` | Provision VPC, GKE cluster, Cloud SQL, Kamailio/RTPEngine VMs |
+| `reconcile_outputs` | Read Terraform outputs (IPs, connection names) into `config.yaml` |
+| `k8s_apply` | Deploy VoIPBin services to the GKE cluster |
+| `reconcile_k8s_outputs` | Read Kubernetes load balancer IPs into `config.yaml` |
+| `cert_provision` | Issue Kamailio TLS certificates |
+| `ansible_run` | Configure Kamailio and RTPEngine VMs |
+
+**The pipeline is resumable.** If a stage fails, fix the issue and re-run
+`apply` — it continues from where it left off.
+
+**Skip confirmation prompts (for CI/CD automation):**
+```bash
+./voipbin-install apply --auto-approve
+```
+
+**Preview the Terraform plan without applying:**
+```bash
+./voipbin-install apply --dry-run
+```
+
+**Re-run only a specific stage:**
+```bash
+./voipbin-install apply --stage ansible_run
+```
+
+**After `apply` completes**, configure DNS for your domain. The output shows
+the IP addresses and records to create:
+
+```
+DNS Records
+  api.voipbin.example.com     A    <load-balancer-ip>
+  hook.voipbin.example.com    A    <load-balancer-ip>
+  admin.voipbin.example.com   A    <load-balancer-ip>
+  talk.voipbin.example.com    A    <load-balancer-ip>
+  meet.voipbin.example.com    A    <load-balancer-ip>
+  sip.voipbin.example.com     A    <sip-vm-ip>
+```
+
+
+### Step 3 — Verify the deployment
+
+```bash
 ./voipbin-install verify
 ```
 
-The `init` wizard asks 7 questions: GCP project ID, region, GKE cluster type,
-TLS strategy, Docker image tag strategy, domain name, and Cloud DNS mode.
+Runs health checks against the live deployment (API reachability, SIP
+connectivity, pod readiness, TLS certificate validity). Run this after DNS
+propagation completes.
+
+
+### Check deployment status at any time
+
+```bash
+./voipbin-install status
+```
+
+Shows the current deployment state, Terraform resource count, GKE cluster
+health, Kubernetes pod phases, and VM status.
+
+```bash
+./voipbin-install status --json    # Machine-readable output for scripting
+```
+
+
+### Tear down all resources
+
+```bash
+./voipbin-install destroy
+```
+
+Removes all GCP resources created by `apply` (VMs, GKE cluster, Cloud SQL,
+VPC, etc.). **This is irreversible — export any data first.**
+
+```bash
+./voipbin-install destroy --auto-approve    # Skip confirmation (use with care)
+```
 
 
 ## TLS Strategy
@@ -329,7 +456,7 @@ service) or upgrade all 31 bin-*-manager services atomically, see
 
 ## DNS Records
 
-VoIPBin requires 5 DNS A records, each pointing at the reserved static IP
+VoIPBin requires 6 DNS A records, each pointing at the reserved static IP
 for its corresponding Service LoadBalancer. After `apply` completes,
 `./voipbin-install verify` prints the actual IPs assigned. Example:
 
@@ -340,6 +467,7 @@ for its corresponding Service LoadBalancer. After `apply` completes,
 | `admin.<domain>` | `admin` LB (frontend)  | Tenant admin SPA               |
 | `talk.<domain>`  | `talk` LB (frontend)   | Agent talk SPA                 |
 | `meet.<domain>`  | `meet` LB (frontend)   | Audio conference SPA           |
+| `sip.<domain>`   | Kamailio external LB   | SIP/WSS traffic                |
 
 If you chose `dns_mode: auto`, the installer creates the Cloud DNS zone and
 the records automatically; delegate your domain's NS records to GCP. If
@@ -390,19 +518,18 @@ kubectl -n square-manager rollout restart deployment/admin deployment/talk deplo
 
 Operator wants to serve a real cert from the very first install (no
 self-signed phase). Run the install in stages, inject the Secrets between
-`ansible_run` and `k8s_apply`:
+`reconcile_outputs` and `k8s_apply`:
 
 ```bash
 # 1. Run init to write config.yaml + secrets.yaml.
 ./voipbin-install init
 # Edit config.yaml: set tls_strategy: byoc
 
-# 2. Provision infrastructure (everything before k8s_apply).
+# 2. Provision GCP infrastructure (stages 1–4).
 ./voipbin-install apply --stage terraform_init
 ./voipbin-install apply --stage reconcile_imports
 ./voipbin-install apply --stage terraform_apply
 ./voipbin-install apply --stage reconcile_outputs
-./voipbin-install apply --stage ansible_run
 
 # 3. Create both namespaces.
 kubectl create namespace bin-manager
@@ -422,9 +549,11 @@ for ns in bin-manager square-manager; do
     --cert=/tmp/your.crt --key=/tmp/your.key
 done
 
-# 6. Continue install. Bootstrap detects populated SSL keys and skips
-#    its self-signed generation.
+# 6. Continue install (stages 5–8: k8s, cert, ansible).
 ./voipbin-install apply --stage k8s_apply
+./voipbin-install apply --stage reconcile_k8s_outputs
+./voipbin-install apply --stage cert_provision
+./voipbin-install apply --stage ansible_run
 
 # 7. Verify production cert is in place across all 3 sources.
 ./voipbin-install verify --check=tls_cert_is_production
@@ -432,6 +561,8 @@ done
 
 
 ## Commands
+
+For detailed usage of each command, run `./voipbin-install <command> --help`.
 
 ### init -- Initialize configuration
 
@@ -441,39 +572,53 @@ for SOPS encryption, generates secrets, and writes `config.yaml` and an
 encrypted `secrets.yaml`.
 
 ```bash
-./voipbin-install init
-./voipbin-install init --reconfigure          # Re-run wizard
-./voipbin-install init --config path/to/config.yaml  # Import existing config
-./voipbin-install init --skip-api-enable      # Skip GCP API enablement
-./voipbin-install init --skip-quota-check     # Skip quota validation
+./voipbin-install init                               # Interactive setup
+./voipbin-install init --reconfigure                 # Re-run wizard to change settings
+./voipbin-install init --config path/to/config.yaml # Import existing config
+./voipbin-install init --dry-run                     # Preview without applying
+./voipbin-install init --skip-api-enable             # Skip GCP API enablement
+./voipbin-install init --skip-quota-check            # Skip quota validation
 ```
 
 ### apply -- Deploy infrastructure and services
 
-Provisions all GCP infrastructure with Terraform, configures VoIP VMs with
-Ansible, and deploys Kubernetes workloads.
+Provisions all GCP infrastructure with Terraform, deploys Kubernetes workloads,
+and configures VoIP VMs with Ansible. Runs 8 ordered stages. Resumable on failure.
 
 ```bash
-./voipbin-install apply
+./voipbin-install apply                              # Full deployment (interactive)
+./voipbin-install apply --auto-approve               # Skip confirmation (CI/CD)
+./voipbin-install apply --dry-run                    # Preview Terraform plan only
+./voipbin-install apply --stage ansible_run          # Re-run a specific stage
 ```
 
-### destroy -- Tear down all resources
+### verify -- Check deployment health
 
-Removes all VoIPBin GCP resources created by `apply`.
+Runs health checks against the live deployment. Run after `apply` and DNS propagation.
 
 ```bash
-./voipbin-install destroy
+./voipbin-install verify                             # Run all checks
+./voipbin-install verify --check http_health         # Run only the HTTP health check
 ```
 
 ### status -- Show deployment status
 
-Displays the current state of all VoIPBin components: Terraform resources,
-VM health, GKE cluster, and Kubernetes workloads.
+Shows the current state of all VoIPBin components. GKE/pod/VM details are only
+shown when the deployment is in an active state.
 
 ```bash
-./voipbin-install status
+./voipbin-install status                             # Human-readable output
+./voipbin-install status --json                      # JSON output for scripting
 ```
 
+### destroy -- Tear down all resources
+
+Removes all VoIPBin GCP resources created by `apply`. **Irreversible.**
+
+```bash
+./voipbin-install destroy                            # Interactive (asks for confirmation)
+./voipbin-install destroy --auto-approve             # Skip confirmation (use with care)
+```
 
 ### cert -- Manage Kamailio TLS Certificates
 
@@ -668,23 +813,23 @@ are defined for:
 
 ## Deployment Pipeline
 
-The `apply` command executes a 3-stage pipeline:
+The `apply` command executes an 8-stage pipeline. See the [Pipeline stages](#pipeline-stages) section for the full ordered list. The stages map to these infrastructure concerns:
 
 ```
-Stage 1: Terraform           Stage 2: Ansible           Stage 3: Kubernetes
-========================     ====================       =====================
- VPC + Subnet                 Kamailio VMs               Namespaces
- Cloud NAT + Router            - Docker install           Network Policies
- Firewall Rules                - Docker Compose           Infrastructure
- GKE Cluster + Node Pool      - Config templates           - Redis
- Kamailio VMs                 RTPEngine VMs                - RabbitMQ
- RTPEngine VMs                 - Docker install             - ClickHouse
- Cloud SQL Instance            - Docker Compose             - Cloud SQL Proxy
- Cloud DNS Zone                - Config templates          Backend Services (31)
- Load Balancers                                            VoIP (3 Asterisk)
- KMS Key Ring                                              Frontend (3 apps)
- GCS Buckets                                               Ingress + TLS
- Service Accounts                                          Database Migration
+Terraform stages          Kubernetes stages          Ansible stages
+=====================     ====================       =====================
+ VPC + Subnet              Namespaces                 Kamailio VMs
+ Cloud NAT + Router        Network Policies            - Docker install
+ Firewall Rules            Infrastructure               - Docker Compose
+ GKE Cluster + Node Pool    - Redis                    - Config templates
+ Kamailio VMs               - RabbitMQ                RTPEngine VMs
+ RTPEngine VMs              - ClickHouse               - Docker install
+ Cloud SQL Instance         - Cloud SQL Proxy           - Docker Compose
+ Cloud DNS Zone            Backend Services (31)        - Config templates
+ Load Balancers            VoIP (3 Asterisk)
+ KMS Key Ring              Frontend (3 apps)
+ GCS Buckets               Ingress + TLS
+ Service Accounts          Database Migration
 ```
 
 Terraform state is stored in a GCS bucket (`<project>-voipbin-tf-state`)
