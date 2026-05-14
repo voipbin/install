@@ -148,7 +148,7 @@ to request a quota increase before deploying.
 - A GCP project (or create a new one — the installer validates access and billing)
 - A domain name you control (for DNS records and TLS certificates)
 - The authenticated gcloud user must have **Owner** or **Editor** role on the
-  project, or at minimum the following 12 IAM roles:
+  project, or at minimum the following 13 IAM roles:
 
 | IAM Role | Purpose |
 |----------|---------|
@@ -781,7 +781,7 @@ webhook-manager
 - asterisk-conference -- Conference bridge instances
 - asterisk-registrar -- SIP registration for user agents
 
-**Frontend (in `bin-manager` namespace)**
+**Frontend (in `square-manager` namespace)**
 
 - square-admin -- Admin dashboard
 - square-talk -- WebRTC calling interface
@@ -798,7 +798,8 @@ webhook-manager
 
 | Namespace | Pod Security | Contents |
 |-----------|-------------|----------|
-| `bin-manager` | baseline | Backend microservices, frontend apps |
+| `bin-manager` | baseline | Backend microservices |
+| `square-manager` | baseline | Frontend apps (admin, talk, meet) |
 | `infrastructure` | restricted | Redis, RabbitMQ, ClickHouse, Cloud SQL Proxy |
 | `voip` | baseline | Asterisk instances |
 
@@ -890,7 +891,7 @@ install/
 |   |-- ansible_runner.py        # Ansible playbook execution (OS Login SSH)
 |   |-- utils.py                 # Shell commands, semver parsing, crypto helpers
 |   |-- verify.py                # 10 health checks (GKE, pods, DNS, HTTP, SIP, etc.)
-|   |-- wizard.py                # 7-question interactive setup wizard
+|   |-- wizard.py                # 8-question interactive setup wizard
 |   |-- commands/
 |       |-- init.py              # init command: wizard + preflight + GCP setup
 |       |-- apply.py             # apply command: Terraform + Ansible + K8s deploy

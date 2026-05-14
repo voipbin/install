@@ -76,7 +76,7 @@ def derive_zone(region: str, gke_type: str) -> str:
 
 
 def run_wizard(existing_config: Optional[dict[str, Any]] = None) -> Optional[dict[str, Any]]:
-    """Run the interactive 7-question setup wizard.
+    """Run the interactive 8-question setup wizard.
 
     Returns the config dict, or None if the user cancels (Ctrl+C).
     """
