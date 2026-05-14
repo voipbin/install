@@ -159,3 +159,75 @@ class TestPipelineDiagnosis:
              patch("scripts.pipeline.save_state"):
             run_pipeline(config, only_stage="terraform_init")
         mock_diag.assert_not_called()
+
+
+class TestRunPipelineStateClobber:
+    """Regression guard for PR-AF: run_pipeline's outer save_state must not
+    clobber sub-key mutations (e.g. cert_state) written by a runner that calls
+    save_state internally."""
+
+    def test_runner_cert_state_survives_outer_save(self, tmp_path, monkeypatch):
+        """T1: Simulate _run_cert_provision writing cert_state to disk inside
+        the runner. The outer run_pipeline save_state must not clobber it.
+
+        Uses a real temp STATE_FILE (not mocked save_state) so YAML round-trips
+        are exercised and a false-passing test cannot hide the regression."""
+        from scripts.pipeline import run_pipeline, load_state, save_state
+
+        state_file = tmp_path / ".voipbin-state.yaml"
+        monkeypatch.setattr("scripts.pipeline.STATE_FILE", state_file)
+
+        def fake_cert_runner(config, outputs, dry_run, auto_approve):
+            inner_state = load_state()
+            inner_state["cert_state"] = {
+                "actual_mode": "self_signed",
+                "ca_fingerprint_sha256": "AA:BB:CC",
+            }
+            save_state(inner_state)
+            return True
+
+        config = MagicMock()
+        config.get.return_value = "voipbin-install-dev"
+
+        monkeypatch.setattr("scripts.pipeline.STAGE_RUNNERS",
+                            {"cert_provision": fake_cert_runner})
+        monkeypatch.setattr("scripts.pipeline.terraform_output", lambda c: {})
+
+        ok = run_pipeline(config, only_stage="cert_provision", auto_approve=True)
+
+        assert ok, "run_pipeline must return True when runner succeeds"
+        final = load_state()
+        assert final.get("cert_state") is not None, (
+            "cert_state was clobbered by run_pipeline's outer save_state — PR-AF regression"
+        )
+        assert final["cert_state"].get("actual_mode") == "self_signed", (
+            "cert_state content was corrupted"
+        )
+
+    def test_stage_marked_complete_after_reload(self, tmp_path, monkeypatch):
+        """T2: After the PR-AF reload, the stage must still be marked 'complete'
+        in state.yaml — the reload must not prevent stage status persistence."""
+        from scripts.pipeline import run_pipeline, load_state, save_state
+
+        state_file = tmp_path / ".voipbin-state.yaml"
+        monkeypatch.setattr("scripts.pipeline.STATE_FILE", state_file)
+
+        def fake_runner(config, outputs, dry_run, auto_approve):
+            inner_state = load_state()
+            inner_state["cert_state"] = {"actual_mode": "self_signed"}
+            save_state(inner_state)
+            return True
+
+        config = MagicMock()
+        config.get.return_value = "voipbin-install-dev"
+
+        monkeypatch.setattr("scripts.pipeline.STAGE_RUNNERS",
+                            {"cert_provision": fake_runner})
+        monkeypatch.setattr("scripts.pipeline.terraform_output", lambda c: {})
+
+        run_pipeline(config, only_stage="cert_provision", auto_approve=True)
+
+        final = load_state()
+        assert final.get("stages", {}).get("cert_provision") == "complete", (
+            "cert_provision stage must be marked 'complete' in state after PR-AF reload"
+        )
