@@ -190,11 +190,35 @@ class TestConftestShim:
 
     def test_subprocess_canary_without_conftest_fails(self):
         """Negative subprocess canary: a process that does NOT import
-        conftest must fail to import ansible.inventory.gcp_inventory.
+        conftest must fail to import ansible.inventory.gcp_inventory
+        when the system ansible package is installed.
+
         Pins the "system ansible would shadow us" failure mode that PR-W
-        was created to fix — if this test ever passes, either Python's
-        ansible package landscape changed or someone added an __init__.py
-        and PR-W is obsolete (update both this test and the shim)."""
+        was created to fix. The shim is only needed when a system ansible
+        package is present — without it, Python's namespace-package
+        resolution discovers the repo-local ansible/ directory directly
+        and the import succeeds even without conftest. In that environment
+        the shim is inert (but harmless), and this canary is not applicable.
+
+        Skipped when system ansible is not importable (venv-only setup or
+        ansible not installed). In that case the shadowing problem cannot
+        arise and the shim correctness is covered by the other tests.
+        """
+        # Check whether system ansible is available in a clean subprocess
+        # (without PYTHONPATH set to the repo, so namespace-package lookup
+        # does NOT find ansible/ in the repo tree).
+        probe = subprocess.run(
+            [sys.executable, "-c", "import ansible"],
+            capture_output=True,
+            text=True,
+            cwd="/tmp",
+        )
+        if probe.returncode != 0:
+            pytest.skip(
+                "System ansible package not installed — shadowing failure mode "
+                "cannot arise; canary not applicable in this environment."
+            )
+
         canary = (
             "from ansible.inventory.gcp_inventory import build_inventory\n"
         )
