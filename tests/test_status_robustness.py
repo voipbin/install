@@ -1,0 +1,126 @@
+"""Tests for voipbin-install status command robustness.
+
+Covers graceful degradation when Terraform state backend is unavailable
+(e.g. immediately after destroy when the GCS bucket is gone).
+"""
+
+from __future__ import annotations
+
+from unittest.mock import patch
+
+import pytest
+
+
+class TestPrintTerraformStatusRobustness:
+    """Ensure _print_terraform_status never raises — only warns."""
+
+    def test_exception_shows_warning_not_traceback(self):
+        """If terraform_resource_count raises any Exception, status prints a
+        warning (with the exception message) instead of propagating the traceback."""
+        from scripts.commands.status import _print_terraform_status
+
+        dummy_config = {}
+
+        with patch(
+            "scripts.commands.status.terraform_resource_count",
+            side_effect=Exception("GCS backend unavailable"),
+        ), patch("scripts.commands.status.print_warning") as mock_warn:
+            _print_terraform_status(dummy_config)
+
+        assert mock_warn.called, "_print_terraform_status must call print_warning on exception"
+        warn_msg = mock_warn.call_args[0][0]
+        assert "GCS backend unavailable" in warn_msg, (
+            "Warning message must include the exception text for debugging"
+        )
+
+    def test_exception_does_not_raise(self):
+        """Must not propagate the exception to the caller."""
+        from scripts.commands.status import _print_terraform_status
+
+        dummy_config = {}
+        with patch(
+            "scripts.commands.status.terraform_resource_count",
+            side_effect=Exception("backend gone"),
+        ):
+            try:
+                _print_terraform_status(dummy_config)
+            except Exception as exc:
+                pytest.fail(
+                    f"_print_terraform_status raised {type(exc).__name__}: {exc} "
+                    "instead of handling gracefully."
+                )
+
+    def test_negative_return_value_does_not_raise(self):
+        """returncode != 0 path: terraform_resource_count returns -1 — must not raise."""
+        from scripts.commands.status import _print_terraform_status
+
+        dummy_config = {}
+        with patch(
+            "scripts.commands.status.terraform_resource_count",
+            return_value=-1,
+        ):
+            _print_terraform_status(dummy_config)
+
+    def test_zero_resources_does_not_raise(self):
+        """Empty state: terraform_resource_count returns 0 — must not raise."""
+        from scripts.commands.status import _print_terraform_status
+
+        dummy_config = {}
+        with patch(
+            "scripts.commands.status.terraform_resource_count",
+            return_value=0,
+        ):
+            _print_terraform_status(dummy_config)
+
+    def test_positive_resources_does_not_raise(self):
+        """Normal path: terraform_resource_count returns a positive int — must not raise."""
+        from scripts.commands.status import _print_terraform_status
+
+        dummy_config = {}
+        with patch(
+            "scripts.commands.status.terraform_resource_count",
+            return_value=42,
+        ):
+            _print_terraform_status(dummy_config)
+
+
+class TestBuildJsonStatusRobustness:
+    """Ensure _build_json_status never raises even when terraform state is unavailable."""
+
+    def test_exception_returns_minus_one_for_count(self):
+        """If terraform_resource_count raises, _build_json_status returns -1
+        for terraform_resource_count instead of propagating the exception."""
+        from scripts.commands.status import _build_json_status
+
+        dummy_config = {}
+        dummy_state = {}
+        with patch(
+            "scripts.commands.status.terraform_resource_count",
+            side_effect=Exception("GCS bucket deleted"),
+        ), patch("scripts.commands.status.k8s_cluster_status", return_value={}), \
+           patch("scripts.commands.status.k8s_status", return_value={}):
+            result = _build_json_status(dummy_config, dummy_state)
+
+        assert result["terraform_resource_count"] == -1, (
+            "_build_json_status must return -1 for terraform_resource_count "
+            "when terraform_resource_count raises (--json path must not traceback)."
+        )
+
+    def test_exception_does_not_raise(self):
+        """_build_json_status must not propagate any terraform exception."""
+        from scripts.commands.status import _build_json_status
+
+        dummy_config = {}
+        dummy_state = {}
+        with patch(
+            "scripts.commands.status.terraform_resource_count",
+            side_effect=Exception("backend gone"),
+        ), patch("scripts.commands.status.k8s_cluster_status", return_value={}), \
+           patch("scripts.commands.status.k8s_status", return_value={}):
+            try:
+                _build_json_status(dummy_config, dummy_state)
+            except Exception as exc:
+                pytest.fail(
+                    f"_build_json_status raised {type(exc).__name__}: {exc} "
+                    "instead of handling gracefully."
+                )
